@@ -150,7 +150,7 @@ export function EquipmentBrowser({
         </div>
 
         <p className="text-sm text-muted-foreground">
-          Showing {filtered.length} of {items.length} sea, air, road, and pallet units. Press / to search.
+          Showing {filtered.length} of {items.length} sea, air, road, and pallet units · press / to search.
         </p>
         {editor === "create" && canManage ? (
           <EquipmentForm key={equipmentFormKey(null)} onClose={() => setEditor(null)} onSaved={setSelectedId} />

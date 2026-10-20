@@ -30,7 +30,7 @@ export default async function EquipmentPage() {
       <div className="mb-4">
         <h1 className="text-xl font-semibold">Equipment</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Library of containers, ULDs, trucks, and pallets. Add a unit to a project — if none exists, create one first.
+          Library of containers, ULDs, trucks, and pallets · add a unit to a project — if none exists, create one first.
         </p>
       </div>
       {items.length === 0 ? (
