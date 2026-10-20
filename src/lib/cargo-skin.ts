@@ -105,7 +105,9 @@ export function disposeMaterials(materials: Material[]) {
   for (const material of materials) {
     if (seen.has(material)) continue
     seen.add(material)
-    if ("map" in material && material.map) material.map.dispose()
+    if ("map" in material && material.map && typeof material.map === "object" && "dispose" in material.map && typeof material.map.dispose === "function") {
+      material.map.dispose()
+    }
     material.dispose()
   }
 }

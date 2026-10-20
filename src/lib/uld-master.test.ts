@@ -1,4 +1,6 @@
+import path from "node:path"
 import { describe, expect, it } from "vitest"
+import * as XLSX from "xlsx"
 import { isAirContourName, isAirPalletName } from "./uld-kinds"
 import { indexUldByName, normalizeUldName, readUldMaster } from "./uld-master"
 
@@ -37,8 +39,6 @@ describe("ULD master workbook", () => {
   })
 
   it("matches every Air-sheet name after whitespace normalize", () => {
-    const XLSX = require("xlsx") as typeof import("xlsx")
-    const path = require("node:path") as typeof import("node:path")
     const workbook = XLSX.readFile(path.join(process.cwd(), "Equipment_List_and_Dimensions.xlsx"))
     const air = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets.Air, { header: 1, raw: true })
     const missing: string[] = []

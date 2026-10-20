@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
+import { useState, useSyncExternalStore, type ReactNode } from "react"
 import { cargoItemInputSchema, type AxisRotation, type CargoItemInput, type CargoShape } from "@compass/domain"
 import { toast } from "sonner"
 import {
@@ -40,6 +40,22 @@ const SHAPES: { value: CargoShape; label: string }[] = [
 ]
 
 const UNIT_STORAGE_KEY = "compass.cargo.lengthUnit"
+const UNIT_EVENT = "compass-cargo-unit"
+
+function readLengthUnit(): LengthUnit {
+  const stored = window.localStorage.getItem(UNIT_STORAGE_KEY)
+  if (stored === "cm" || stored === "in" || stored === "m") return stored
+  return "cm"
+}
+
+function subscribeLengthUnit(onStoreChange: () => void) {
+  window.addEventListener(UNIT_EVENT, onStoreChange)
+  window.addEventListener("storage", onStoreChange)
+  return () => {
+    window.removeEventListener(UNIT_EVENT, onStoreChange)
+    window.removeEventListener("storage", onStoreChange)
+  }
+}
 
 export function CargoGrid({
   projectId,
@@ -55,16 +71,11 @@ export function CargoGrid({
   const [stop, setStop] = useState("1")
   const [shape, setShape] = useState<CargoShape>("BOX")
   const [notStackable, setNotStackable] = useState(false)
-  const [unit, setUnit] = useState<LengthUnit>("cm")
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem(UNIT_STORAGE_KEY)
-    if (stored === "cm" || stored === "in" || stored === "m") setUnit(stored)
-  }, [])
+  const unit = useSyncExternalStore(subscribeLengthUnit, readLengthUnit, () => "cm" as LengthUnit)
 
   function changeUnit(next: LengthUnit) {
-    setUnit(next)
     window.localStorage.setItem(UNIT_STORAGE_KEY, next)
+    window.dispatchEvent(new Event(UNIT_EVENT))
   }
 
   const allSelected = lines.length > 0 && selected.length === lines.length
@@ -469,10 +480,11 @@ function LengthCell({
 }) {
   const [text, setText] = useState(() => displayLength(cm, unit))
   const [focused, setFocused] = useState(false)
-
-  useEffect(() => {
-    if (!focused) setText(displayLength(cm, unit))
-  }, [cm, focused, unit])
+  const [source, setSource] = useState({ cm, unit })
+  if (!focused && (source.cm !== cm || source.unit !== unit)) {
+    setSource({ cm, unit })
+    setText(displayLength(cm, unit))
+  }
 
   return (
     <td className="px-1 py-1">
