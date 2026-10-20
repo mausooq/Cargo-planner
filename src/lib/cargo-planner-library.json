@@ -1,0 +1,1593 @@
+{
+  "fetchedAt": "2026-10-06T09:51:22.942Z",
+  "source": "https://cargo-planner.com/equipment-library/",
+  "count": 54,
+  "missing": [
+    "PMC/P6P - LD",
+    "PMC/P6P - LD (Winged)",
+    "PMC/P6P - Q6",
+    "PMC/P6P - Q7",
+    "PAG/P1P - LD-7",
+    "PAG/P1P - Q6",
+    "PAG/P1P - Q7",
+    "LD-11 / ALP",
+    "LD-1 / AKC",
+    "LD3-45 / AKH",
+    "LD-8 / (ALN/DQN/DQF)",
+    "LD-9 / AAP",
+    "PGA 20ft",
+    "PLA Half Pallet",
+    "PLA Half Pallet (LD)",
+    "PRA/MDP - 16ft Pallet",
+    "PYB - Q6",
+    "CMP"
+  ],
+  "items": [
+    {
+      "mode": "SEA",
+      "name": "20ft DV",
+      "innerLengthCm": 585,
+      "innerWidthCm": 235,
+      "innerHeightCm": 239.5,
+      "maxPayloadKg": 20000,
+      "tareKg": 2300,
+      "doorWidthCm": 234,
+      "doorHeightCm": 229,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "40ft DV",
+      "innerLengthCm": 1203.2,
+      "innerWidthCm": 235,
+      "innerHeightCm": 239.5,
+      "maxPayloadKg": 22000,
+      "tareKg": 3750,
+      "doorWidthCm": 234,
+      "doorHeightCm": 229,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "40ft HC",
+      "innerLengthCm": 1203.2,
+      "innerWidthCm": 235,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 25000,
+      "tareKg": 3940,
+      "doorWidthCm": 234,
+      "doorHeightCm": 259,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "45ft HC",
+      "innerLengthCm": 1355.6,
+      "innerWidthCm": 235.2,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 26000,
+      "tareKg": 4820,
+      "doorWidthCm": 234,
+      "doorHeightCm": 259,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "20ft RF",
+      "innerLengthCm": 545,
+      "innerWidthCm": 228,
+      "innerHeightCm": 215.9,
+      "maxPayloadKg": 22000,
+      "tareKg": 3080,
+      "doorWidthCm": 229,
+      "doorHeightCm": 226,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "40ft RF",
+      "innerLengthCm": 1156,
+      "innerWidthCm": 228,
+      "innerHeightCm": 225,
+      "maxPayloadKg": 27700,
+      "tareKg": 4800,
+      "doorWidthCm": 229,
+      "doorHeightCm": 226,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "40ft RF HC",
+      "innerLengthCm": 1159,
+      "innerWidthCm": 229,
+      "innerHeightCm": 242.5,
+      "maxPayloadKg": 29400,
+      "tareKg": 4480,
+      "doorWidthCm": 234,
+      "doorHeightCm": 259,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "20ft OT",
+      "innerLengthCm": 589.5,
+      "innerWidthCm": 235,
+      "innerHeightCm": 238,
+      "maxPayloadKg": 28000,
+      "tareKg": 2350,
+      "doorWidthCm": 233.8,
+      "doorHeightCm": 228,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "40ft OT",
+      "innerLengthCm": 1202.9,
+      "innerWidthCm": 235,
+      "innerHeightCm": 238,
+      "maxPayloadKg": 22000,
+      "tareKg": 3850,
+      "doorWidthCm": 234,
+      "doorHeightCm": 227.6,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "20ft FR",
+      "innerLengthCm": 603.8,
+      "innerWidthCm": 243.8,
+      "innerHeightCm": 223,
+      "maxPayloadKg": 42000,
+      "tareKg": 2360,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "40ft FR",
+      "innerLengthCm": 1204.8,
+      "innerWidthCm": 243.8,
+      "innerHeightCm": 223,
+      "maxPayloadKg": 40000,
+      "tareKg": 5000,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "40ft PL",
+      "innerLengthCm": 1219.6,
+      "innerWidthCm": 234.7,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 49000,
+      "tareKg": 5700,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "40ft OT HC",
+      "innerLengthCm": 1202.9,
+      "innerWidthCm": 235,
+      "innerHeightCm": 268.3,
+      "maxPayloadKg": 22000,
+      "tareKg": 3980,
+      "doorWidthCm": 235,
+      "doorHeightCm": 264.9,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "Standard Chassis with 20ft DV",
+      "innerLengthCm": 585,
+      "innerWidthCm": 235,
+      "innerHeightCm": 239.5,
+      "maxPayloadKg": 20000,
+      "tareKg": 5800,
+      "doorWidthCm": 234,
+      "doorHeightCm": 229,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Box Trailer (EU)",
+      "innerLengthCm": 1362,
+      "innerWidthCm": 246,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 21500,
+      "tareKg": 8600,
+      "doorWidthCm": 246,
+      "doorHeightCm": 270,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Curtain trailer (EU)",
+      "innerLengthCm": 1360,
+      "innerWidthCm": 248,
+      "innerHeightCm": 272,
+      "maxPayloadKg": 25000,
+      "tareKg": 7200,
+      "doorWidthCm": 245,
+      "doorHeightCm": 267,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Megatrailer (EU)",
+      "innerLengthCm": 1362,
+      "innerWidthCm": 248,
+      "innerHeightCm": 300,
+      "maxPayloadKg": 32800,
+      "tareKg": 7200,
+      "doorWidthCm": 245,
+      "doorHeightCm": 290,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "PALLET",
+      "name": "Euro pallet",
+      "innerLengthCm": 120,
+      "innerWidthCm": 80,
+      "innerHeightCm": 210,
+      "maxPayloadKg": 660,
+      "tareKg": 25,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "20' Roll trailer - 25t",
+      "innerLengthCm": 610,
+      "innerWidthCm": 250,
+      "innerHeightCm": 400,
+      "maxPayloadKg": 25000,
+      "tareKg": 2450,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "40' Roll trailer -100t",
+      "innerLengthCm": 1220,
+      "innerWidthCm": 250,
+      "innerHeightCm": 495,
+      "maxPayloadKg": 95000,
+      "tareKg": 8200,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "53' High Cube Rail Container",
+      "innerLengthCm": 1601.5,
+      "innerWidthCm": 250.2,
+      "innerHeightCm": 278.1,
+      "maxPayloadKg": 19731,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "62' Roll Trailer - 100t",
+      "innerLengthCm": 1890,
+      "innerWidthCm": 250,
+      "innerHeightCm": 495,
+      "maxPayloadKg": 90000,
+      "tareKg": 13000,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "72' Roll Trailer - 80t",
+      "innerLengthCm": 2200,
+      "innerWidthCm": 280,
+      "innerHeightCm": 640,
+      "maxPayloadKg": 90000,
+      "tareKg": 16000,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "SEA",
+      "name": "Standard Chassis with 40ft HC",
+      "innerLengthCm": 1203.2,
+      "innerWidthCm": 235,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 25000,
+      "tareKg": 7320,
+      "doorWidthCm": 234,
+      "doorHeightCm": 259,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Open Trailer (EU)",
+      "innerLengthCm": 1395,
+      "innerWidthCm": 248,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 31900,
+      "tareKg": 6500,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "48ft Semi (US)",
+      "innerLengthCm": 1455,
+      "innerWidthCm": 256,
+      "innerHeightCm": 279,
+      "maxPayloadKg": 18141,
+      "tareKg": null,
+      "doorWidthCm": 256,
+      "doorHeightCm": 279,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "53ft Semi (US)",
+      "innerLengthCm": 1600,
+      "innerWidthCm": 256,
+      "innerHeightCm": 279,
+      "maxPayloadKg": 18141,
+      "tareKg": null,
+      "doorWidthCm": 256,
+      "doorHeightCm": 279,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "48ft Flatbed Trailer (US)",
+      "innerLengthCm": 1463,
+      "innerWidthCm": 259.1,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 20408,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "53ft Flatbed Trailer (US)",
+      "innerLengthCm": 1615.4,
+      "innerWidthCm": 259.1,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 20408,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "53ft Step Deck Trailer (US)",
+      "innerLengthCm": 1615.4,
+      "innerWidthCm": 259.1,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 18141,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Double Drop Trailer - Low Boy",
+      "innerLengthCm": 1463,
+      "innerWidthCm": 259.1,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 18141,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "53ft High Cube Rail Container (US)",
+      "innerLengthCm": 1601.5,
+      "innerWidthCm": 250.2,
+      "innerHeightCm": 278.1,
+      "maxPayloadKg": 19731,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Double Deck Trailer",
+      "innerLengthCm": 1362,
+      "innerWidthCm": 248,
+      "innerHeightCm": 400,
+      "maxPayloadKg": 31300,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "26ft Box Truck",
+      "innerLengthCm": 792.5,
+      "innerWidthCm": 259.1,
+      "innerHeightCm": 259.1,
+      "maxPayloadKg": 4536,
+      "tareKg": 7258,
+      "doorWidthCm": 259.1,
+      "doorHeightCm": 259.1,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "12m Semi Trailer (ZA)",
+      "innerLengthCm": 1200,
+      "innerWidthCm": 260,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 28000,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "18m Super Link Trailer (ZA)",
+      "innerLengthCm": 1800,
+      "innerWidthCm": 260,
+      "innerHeightCm": 200,
+      "maxPayloadKg": 36000,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Eastern Trailer",
+      "innerLengthCm": 1300,
+      "innerWidthCm": 245,
+      "innerHeightCm": 245,
+      "maxPayloadKg": 20000,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Eastern Trailer (tall)",
+      "innerLengthCm": 1300,
+      "innerWidthCm": 245,
+      "innerHeightCm": 255,
+      "maxPayloadKg": 20000,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Superlink 1st (ZA)",
+      "innerLengthCm": 610,
+      "innerWidthCm": 250,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 11000,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Superlink 2nd (ZA)",
+      "innerLengthCm": 1200,
+      "innerWidthCm": 240,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 22000,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Truck",
+      "innerLengthCm": 720,
+      "innerWidthCm": 244,
+      "innerHeightCm": 310,
+      "maxPayloadKg": 20000,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "VGK",
+      "innerLengthCm": 1370,
+      "innerWidthCm": 265,
+      "innerHeightCm": 270.1,
+      "maxPayloadKg": 68000,
+      "tareKg": null,
+      "doorWidthCm": 200,
+      "doorHeightCm": 230,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "Trailer",
+      "innerLengthCm": 1200,
+      "innerWidthCm": 244,
+      "innerHeightCm": 310,
+      "maxPayloadKg": 20000,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "2ton Van Truck (CN)",
+      "innerLengthCm": 420,
+      "innerWidthCm": 175,
+      "innerHeightCm": 175,
+      "maxPayloadKg": 2000,
+      "tareKg": null,
+      "doorWidthCm": 175,
+      "doorHeightCm": 175,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "5ton Van Truck (CN)",
+      "innerLengthCm": 680,
+      "innerWidthCm": 225,
+      "innerHeightCm": 225,
+      "maxPayloadKg": 5000,
+      "tareKg": null,
+      "doorWidthCm": 225,
+      "doorHeightCm": 225,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "ROAD",
+      "name": "RGN (Extendable)",
+      "innerLengthCm": 1463,
+      "innerWidthCm": 259.1,
+      "innerHeightCm": 270,
+      "maxPayloadKg": 36288,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "PALLET",
+      "name": "GMA Standard Pallet",
+      "innerLengthCm": 121.9,
+      "innerWidthCm": 101.6,
+      "innerHeightCm": 210,
+      "maxPayloadKg": 2086,
+      "tareKg": 20,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "PALLET",
+      "name": "Double-decker bolster for Rolltrailer",
+      "innerLengthCm": 606,
+      "innerWidthCm": 242,
+      "innerHeightCm": 370,
+      "maxPayloadKg": 120000,
+      "tareKg": 2000,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "PALLET",
+      "name": "Tripple-decker bolster for Rolltrailer",
+      "innerLengthCm": 606,
+      "innerWidthCm": 242,
+      "innerHeightCm": 370,
+      "maxPayloadKg": 120000,
+      "tareKg": 2000,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "AIR",
+      "name": "LD-26 / AAF",
+      "innerLengthCm": 400,
+      "innerWidthCm": 214,
+      "innerHeightCm": 153,
+      "maxPayloadKg": 6033,
+      "tareKg": 250,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 470,
+          "heightMm": 470
+        },
+        "bottomRight": {
+          "lengthMm": 470,
+          "heightMm": 470
+        }
+      }
+    },
+    {
+      "mode": "AIR",
+      "name": "LD-2 (APA/DPA)",
+      "innerLengthCm": 156.2,
+      "innerWidthCm": 153.4,
+      "innerHeightCm": 162.6,
+      "maxPayloadKg": 1133,
+      "tareKg": 90,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 368,
+          "heightMm": 368
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "AIR",
+      "name": "A2N",
+      "innerLengthCm": 317,
+      "innerWidthCm": 223,
+      "innerHeightCm": 205,
+      "maxPayloadKg": 6033,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 1075,
+          "heightMm": 910
+        },
+        "topRight": {
+          "lengthMm": 1075,
+          "heightMm": 910
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "AIR",
+      "name": "AAN",
+      "innerLengthCm": 298,
+      "innerWidthCm": 208,
+      "innerHeightCm": 148,
+      "maxPayloadKg": 1588,
+      "tareKg": 230,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 355,
+          "heightMm": 355
+        },
+        "topRight": {
+          "lengthMm": 355,
+          "heightMm": 355
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        }
+      }
+    },
+    {
+      "mode": "AIR",
+      "name": "LD-3 / AKE",
+      "innerLengthCm": 192,
+      "innerWidthCm": 145,
+      "innerHeightCm": 162,
+      "maxPayloadKg": 1516,
+      "tareKg": null,
+      "doorWidthCm": null,
+      "doorHeightCm": null,
+      "contour": {
+        "topLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "topRight": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomLeft": {
+          "lengthMm": 0,
+          "heightMm": 0
+        },
+        "bottomRight": {
+          "lengthMm": 450,
+          "heightMm": 510
+        }
+      }
+    }
+  ]
+}

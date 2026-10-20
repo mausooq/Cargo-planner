@@ -1,26 +1,119 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f4f5f6;
+  --foreground: #1a1d21;
+  --card: #ffffff;
+  --card-foreground: #1a1d21;
+  --popover: #ffffff;
+  --popover-foreground: #1a1d21;
+  --primary: #0f5c4c;
+  --primary-foreground: #ffffff;
+  --secondary: #eef0f2;
+  --secondary-foreground: #1a1d21;
+  --muted: #eef0f2;
+  --muted-foreground: #5c6370;
+  --accent: #e8edeb;
+  --accent-foreground: #0f5c4c;
+  --destructive: #b42318;
+  --border: #d8dce1;
+  --input: #d8dce1;
+  --ring: #0f5c4c;
+  --chart-1: #0f5c4c;
+  --chart-2: #3f4a56;
+  --chart-3: #6b7280;
+  --chart-4: #98a2b3;
+  --chart-5: #d0d5dd;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: #121417;
+  --foreground: #eceef0;
+  --card: #1a1d21;
+  --card-foreground: #eceef0;
+  --popover: #1a1d21;
+  --popover-foreground: #eceef0;
+  --primary: #3d8f7a;
+  --primary-foreground: #071410;
+  --secondary: #262a30;
+  --secondary-foreground: #eceef0;
+  --muted: #22262b;
+  --muted-foreground: #9aa3ad;
+  --accent: #24302c;
+  --accent-foreground: #b7d4cb;
+  --destructive: #f97066;
+  --border: #2d3238;
+  --input: #2d3238;
+  --ring: #3d8f7a;
+  --chart-1: #3d8f7a;
+  --chart-2: #98a2b3;
+  --chart-3: #6b7280;
+  --chart-4: #d0d5dd;
+  --chart-5: #eceef0;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: 0.375rem;
+  --radius-md: var(--radius);
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.625rem;
+  --font-sans: var(--font-geist);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 22%, transparent);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.sheet-table {
+  border-collapse: collapse;
+}
+
+.sheet-table th,
+.sheet-table td {
+  border-bottom: 1px solid var(--border);
+}
+
+.sheet-table th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
 }
