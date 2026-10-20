@@ -14,6 +14,7 @@ import { DIMENSION_COLORS, formatCm, formatCost, formatEnvelope, formatKg } from
 import { cn } from "@/lib/utils"
 import { AddToProjectDialog, type ProjectOption } from "@/components/add-to-project-dialog"
 import { EquipmentViewer } from "@/components/equipment-viewer"
+import { equipmentFormKey } from "@/lib/equipment-form-key"
 import { useEquipmentLibrary, type LibrarySort } from "@/stores/equipment-library"
 
 export function EquipmentBrowser({
@@ -64,11 +65,14 @@ export function EquipmentBrowser({
 
   const [stageOpen, setStageOpen] = useState(false)
   const [editor, setEditor] = useState<"create" | "edit" | null>(null)
-  const selected = items.find((item) => item.id === selectedId) ?? filtered[0] ?? null
-
-  useEffect(() => {
-    if (!selectedId && filtered[0]) setSelectedId(filtered[0].id)
-  }, [filtered, selectedId, setSelectedId])
+  const visibleId = filtered.some((item) => item.id === selectedId) ? selectedId : (filtered[0]?.id ?? null)
+  if (visibleId !== selectedId) setSelectedId(visibleId)
+  const [trackedSelection, setTrackedSelection] = useState(visibleId)
+  if (trackedSelection !== visibleId) {
+    setTrackedSelection(visibleId)
+    setEditor(null)
+  }
+  const selected = filtered.find((item) => item.id === visibleId) ?? null
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -151,7 +155,9 @@ export function EquipmentBrowser({
         <p className="text-sm text-muted-foreground">
           Showing {filtered.length} of {items.length} sea, air, road, and pallet units. Press / to search.
         </p>
-        {editor === "create" && canManage ? <EquipmentForm onClose={() => setEditor(null)} /> : null}
+        {editor === "create" && canManage ? (
+          <EquipmentForm key={equipmentFormKey(null)} onClose={() => setEditor(null)} />
+        ) : null}
 
         {groups.length === 0 ? (
           <div className="rounded-md border border-dashed bg-card px-4 py-8 text-center">
@@ -167,7 +173,7 @@ export function EquipmentBrowser({
                 </h2>
                 <ul className="divide-y overflow-hidden rounded-md border bg-card">
                   {group.items.map((item) => {
-                    const isSelected = item.id === selectedId
+                    const isSelected = item.id === visibleId
                     return (
                       <li key={item.id}>
                         <button
@@ -330,7 +336,7 @@ function EquipmentDetail({
   onCloseEdit: () => void
 }) {
   if (editing && canManage) {
-    return <EquipmentForm item={item} onClose={onCloseEdit} />
+    return <EquipmentForm key={equipmentFormKey(item)} item={item} onClose={onCloseEdit} />
   }
   return (
     <article className="space-y-3 rounded-md border bg-card p-4">
