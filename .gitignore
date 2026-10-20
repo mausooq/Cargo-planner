@@ -30,8 +30,18 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files
+.env
+.env.local
+.env.*.local
+
+# sqlite (including the local Prisma dev database at prisma/dev.db)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+/prisma/dev.db
+/prisma/dev.db-journal
 
 # vercel
 .vercel
