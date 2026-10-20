@@ -1,107 +1,144 @@
 "use server"
 
+import { equipmentFieldErrors, equipmentWriteSchemaFor, type EquipmentWriteInput } from "@compass/domain"
 import { Prisma } from "@prisma/client"
-import { equipmentWriteSchema } from "@compass/domain"
 import { revalidatePath } from "next/cache"
 import { adminOrError } from "@/lib/editor"
 import { prisma } from "@/lib/prisma"
 
-export async function createEquipment(input: unknown) {
+type ActionFail = { ok: false; error: string; fieldErrors?: Record<string, string> }
+type ActionOk = { ok: true; id: string }
+
+export async function createEquipment(input: unknown): Promise<ActionOk | ActionFail> {
   const access = await adminOrError()
   if (!access.ok) return access
 
-  const parsed = equipmentWriteSchema.safeParse(input)
-  if (!parsed.success) return { ok: false as const, error: "Check the name, dimensions, and payload." }
+  const parsed = await parseEquipment(input, access.user.orgId)
+  if (!parsed.ok) return parsed
 
   const data = parsed.data
-  await prisma.equipmentType.create({
+  const created = await prisma.equipmentType.create({
     data: {
+      ...dimensionData(data),
       mode: data.mode,
-      name: data.name,
       code: customCode(data.name),
-      sizeLabel: sizeLabel(data),
-      innerLengthCm: data.innerLengthCm,
-      innerWidthCm: data.innerWidthCm,
-      innerHeightCm: data.innerHeightCm,
-      heightOpen: data.heightOpen,
-      maxPayloadKg: data.maxPayloadKg,
-      tareKg: data.tareKg,
-      doorWidthCm: data.doorWidthCm,
-      doorHeightCm: data.doorHeightCm,
       floors: 1,
       axleGroups: emptyJson(),
       costPerUnit: 0,
       isCustom: true,
       extendable: false,
-      oogClass: data.oogClass,
-      notes: data.notes,
-      contour: data.contour as Prisma.InputJsonValue,
       orgId: access.user.orgId,
     },
   })
 
   revalidatePath("/equipment")
-  return { ok: true as const }
+  return { ok: true, id: created.id }
 }
 
-export async function updateEquipment(input: unknown) {
+export async function updateEquipment(input: unknown): Promise<ActionOk | ActionFail> {
   const access = await adminOrError()
   if (!access.ok) return access
 
-  const parsed = equipmentWriteSchema.safeParse(input)
-  if (!parsed.success || !parsed.data.id) {
-    return { ok: false as const, error: "Check the name, dimensions, and payload." }
+  const id = readId(input)
+  if (!id) return { ok: false, error: "Check the name, dimensions, and payload.", fieldErrors: { id: "Choose equipment to update." } }
+
+  const existing = await prisma.equipmentType.findFirst({
+    where: { id, OR: [{ orgId: null }, { orgId: access.user.orgId }] },
+  })
+  if (!existing) return { ok: false, error: "That equipment is not in this library." }
+
+  const parsed = await parseEquipment(input, access.user.orgId, existing.orgId === access.user.orgId ? existing.id : undefined)
+  if (!parsed.ok) return parsed
+  const data = parsed.data
+
+  if (existing.orgId == null) {
+    const created = await prisma.equipmentType.create({
+      data: {
+        ...dimensionData(data),
+        mode: data.mode,
+        code: customCode(data.name),
+        floors: existing.floors,
+        axleGroups: existing.axleGroups as Prisma.InputJsonValue,
+        costPerUnit: existing.costPerUnit,
+        isCustom: true,
+        extendable: existing.extendable,
+        maxExtendedLengthCm: existing.maxExtendedLengthCm,
+        orgId: access.user.orgId,
+      },
+    })
+    revalidatePath("/equipment")
+    return { ok: true, id: created.id }
   }
 
-  const data = parsed.data
-  const existing = await prisma.equipmentType.findFirst({
-    where: { id: data.id, OR: [{ orgId: null }, { orgId: access.user.orgId }] },
+  const updated = await prisma.equipmentType.updateMany({
+    where: { id: existing.id, orgId: access.user.orgId },
+    data: dimensionData(data),
   })
-  if (!existing) return { ok: false as const, error: "That equipment is not in this library." }
-
-  await prisma.equipmentType.update({
-    where: { id: existing.id },
-    data: {
-      name: data.name,
-      sizeLabel: sizeLabel(data),
-      innerLengthCm: data.innerLengthCm,
-      innerWidthCm: data.innerWidthCm,
-      innerHeightCm: data.innerHeightCm,
-      heightOpen: data.heightOpen,
-      maxPayloadKg: data.maxPayloadKg,
-      tareKg: data.tareKg,
-      doorWidthCm: data.doorWidthCm,
-      doorHeightCm: data.doorHeightCm,
-      oogClass: data.oogClass,
-      notes: data.notes,
-      contour: data.contour as Prisma.InputJsonValue,
-    },
-  })
+  if (updated.count !== 1) return { ok: false, error: "That equipment is not in this library." }
 
   revalidatePath("/equipment")
-  return { ok: true as const }
+  return { ok: true, id: existing.id }
 }
 
-export async function deleteEquipment(id: string) {
+export async function deleteEquipment(id: string): Promise<{ ok: true } | ActionFail> {
   const access = await adminOrError()
   if (!access.ok) return access
 
   const existing = await prisma.equipmentType.findFirst({
     where: { id, isCustom: true, orgId: access.user.orgId },
   })
-  if (!existing) return { ok: false as const, error: "Only custom equipment can be removed." }
+  if (!existing) return { ok: false, error: "Only custom equipment can be removed." }
+
+  const [projectUnits, planUnits, setMembers] = await Promise.all([
+    prisma.projectEquipment.count({ where: { equipmentTypeId: existing.id } }),
+    prisma.equipmentInstance.count({ where: { equipmentTypeId: existing.id } }),
+    prisma.equipmentSetMember.count({ where: { equipmentTypeId: existing.id } }),
+  ])
+  const count = projectUnits + planUnits + setMembers
+  if (count > 0) {
+    const noun = count === 1 ? "unit" : "units"
+    return { ok: false, error: `This equipment is used by ${count} project ${noun}.` }
+  }
 
   await prisma.equipmentType.delete({ where: { id: existing.id } })
   revalidatePath("/equipment")
-  return { ok: true as const }
+  return { ok: true }
+}
+
+async function parseEquipment(input: unknown, orgId: string, exceptId?: string): Promise<{ ok: true; data: EquipmentWriteInput } | ActionFail> {
+  const taken = await prisma.equipmentType.findMany({
+    where: { orgId, ...(exceptId ? { NOT: { id: exceptId } } : {}) },
+    select: { name: true },
+  })
+  const parsed = equipmentWriteSchemaFor(taken.map((row) => row.name)).safeParse(input)
+  if (!parsed.success) {
+    const fieldErrors = equipmentFieldErrors(parsed.error)
+    const error = Object.values(fieldErrors)[0] ?? "Check the name, dimensions, and payload."
+    return { ok: false, error, fieldErrors }
+  }
+  return { ok: true, data: parsed.data }
+}
+
+function dimensionData(data: EquipmentWriteInput) {
+  return {
+    name: data.name,
+    sizeLabel: sizeLabel(data),
+    innerLengthCm: data.innerLengthCm,
+    innerWidthCm: data.innerWidthCm,
+    innerHeightCm: data.innerHeightCm,
+    heightOpen: data.heightOpen,
+    maxPayloadKg: data.maxPayloadKg,
+    tareKg: data.tareKg,
+    doorWidthCm: data.doorWidthCm,
+    doorHeightCm: data.doorHeightCm,
+    oogClass: data.oogClass,
+    notes: data.notes,
+    contour: data.contour as Prisma.InputJsonValue,
+  }
 }
 
 function sizeLabel(data: { innerLengthCm: number; innerWidthCm: number; innerHeightCm: number }) {
-  return `${trim(data.innerLengthCm)} x ${trim(data.innerWidthCm)} x ${trim(data.innerHeightCm)} CM`
-}
-
-function trim(value: number): string {
-  return Number.isInteger(value) ? String(value) : String(value)
+  return `${data.innerLengthCm} x ${data.innerWidthCm} x ${data.innerHeightCm} CM`
 }
 
 function customCode(name: string): string {
@@ -116,4 +153,10 @@ function customCode(name: string): string {
 
 function emptyJson(): Prisma.InputJsonValue {
   return []
+}
+
+function readId(input: unknown): string | null {
+  if (!input || typeof input !== "object" || !("id" in input)) return null
+  const id = (input as { id?: unknown }).id
+  return typeof id === "string" && id.length > 0 ? id : null
 }

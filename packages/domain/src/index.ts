@@ -217,23 +217,77 @@ export const customRuleSchema = z.object({
 })
 export type CustomRule = z.infer<typeof customRuleSchema>
 
-export const equipmentWriteSchema = z.object({
-  id: z.string().min(1).optional(),
-  mode: equipmentModeSchema,
-  name: z.string().trim().min(1).max(160),
-  innerLengthCm: z.number().positive(),
-  innerWidthCm: z.number().positive(),
-  innerHeightCm: z.number().positive(),
-  heightOpen: z.boolean(),
-  maxPayloadKg: z.number().positive(),
-  tareKg: z.number().nonnegative(),
-  doorWidthCm: z.number().positive().nullable(),
-  doorHeightCm: z.number().positive().nullable(),
-  oogClass: oogClassSchema,
-  notes: z.string().trim().max(2000).nullable(),
-  contour: equipmentContourSchema,
-})
+const CONTOUR_SIDES = ["bottomLeft", "bottomRight", "topLeft", "topRight"] as const
+
+export const equipmentWriteSchema = z
+  .object({
+    id: z.string().min(1).optional(),
+    mode: equipmentModeSchema,
+    name: z.string().trim().min(1).max(160),
+    innerLengthCm: z.number().positive(),
+    innerWidthCm: z.number().positive(),
+    innerHeightCm: z.number().positive(),
+    heightOpen: z.boolean(),
+    maxPayloadKg: z.number().positive(),
+    tareKg: z.number(),
+    doorWidthCm: z.number().positive().nullable(),
+    doorHeightCm: z.number().positive().nullable(),
+    oogClass: oogClassSchema,
+    notes: z.string().trim().max(2000).nullable(),
+    contour: equipmentContourSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.tareKg < 0) {
+      ctx.addIssue({ code: "custom", message: "Tare must be 0 kg or more.", path: ["tareKg"] })
+    }
+    if (value.doorWidthCm != null && value.doorWidthCm > value.innerWidthCm) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Door width must be within the interior width.",
+        path: ["doorWidthCm"],
+      })
+    }
+    if (value.doorHeightCm != null && value.doorHeightCm > value.innerHeightCm) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Door height must be within the interior height.",
+        path: ["doorHeightCm"],
+      })
+    }
+    for (const side of CONTOUR_SIDES) {
+      const heightCm = value.contour[side].heightMm / 10
+      if (heightCm > value.innerHeightCm) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Contour height must be within the interior height.",
+          path: ["contour", side, "heightMm"],
+        })
+      }
+    }
+  })
 export type EquipmentWriteInput = z.infer<typeof equipmentWriteSchema>
+
+export function equipmentWriteSchemaFor(takenNames: readonly string[]) {
+  return equipmentWriteSchema.superRefine((value, ctx) => {
+    const needle = value.name.trim().toLowerCase()
+    if (takenNames.some((name) => name.trim().toLowerCase() === needle)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "That name is already used in this organisation.",
+        path: ["name"],
+      })
+    }
+  })
+}
+
+export function equipmentFieldErrors(error: z.ZodError): Record<string, string> {
+  const fieldErrors: Record<string, string> = {}
+  for (const issue of error.issues) {
+    const key = issue.path.length > 0 ? issue.path.map(String).join(".") : "form"
+    if (!fieldErrors[key]) fieldErrors[key] = issue.message
+  }
+  return fieldErrors
+}
 
 export function canEditProjects(role: Role): boolean {
   return role === "ADMIN" || role === "PLANNER"
