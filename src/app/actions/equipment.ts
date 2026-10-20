@@ -4,6 +4,7 @@ import { equipmentFieldErrors, equipmentWriteSchemaFor, type EquipmentWriteInput
 import { Prisma } from "@prisma/client"
 import { revalidatePath } from "next/cache"
 import { adminOrError } from "@/lib/editor"
+import { parseEquipmentCsv } from "@/lib/equipment-import"
 import { prisma } from "@/lib/prisma"
 
 type ActionFail = { ok: false; error: string; fieldErrors?: Record<string, string> }
@@ -103,6 +104,50 @@ export async function deleteEquipment(id: string): Promise<{ ok: true } | Action
   await prisma.equipmentType.delete({ where: { id: existing.id } })
   revalidatePath("/equipment")
   return { ok: true }
+}
+
+export async function importEquipmentCsv(csv: string): Promise<{ ok: true; created: number; errors: { row: number; message: string }[] } | ActionFail> {
+  const access = await adminOrError()
+  if (!access.ok) return access
+
+  const table = parseEquipmentCsv(csv)
+  if (table.error) return { ok: false, error: table.error }
+
+  const existing = await prisma.equipmentType.findMany({
+    where: { orgId: access.user.orgId },
+    select: { name: true },
+  })
+  const taken = existing.map((row) => row.name)
+  const errors: { row: number; message: string }[] = []
+  let createdCount = 0
+
+  for (const entry of table.rows) {
+    const parsed = equipmentWriteSchemaFor(taken).safeParse(entry.input)
+    if (!parsed.success) {
+      const fieldErrors = equipmentFieldErrors(parsed.error)
+      errors.push({ row: entry.row, message: Object.values(fieldErrors).join(" ") || "This row could not be read." })
+      continue
+    }
+    const data = parsed.data
+    await prisma.equipmentType.create({
+      data: {
+        ...dimensionData(data),
+        mode: data.mode,
+        code: customCode(data.name),
+        floors: 1,
+        axleGroups: emptyJson(),
+        costPerUnit: 0,
+        isCustom: true,
+        extendable: false,
+        orgId: access.user.orgId,
+      },
+    })
+    taken.push(data.name)
+    createdCount += 1
+  }
+
+  if (createdCount > 0) revalidatePath("/equipment")
+  return { ok: true, created: createdCount, errors }
 }
 
 async function parseEquipment(input: unknown, orgId: string, exceptId?: string): Promise<{ ok: true; data: EquipmentWriteInput } | ActionFail> {

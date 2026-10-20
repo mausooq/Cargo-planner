@@ -1,10 +1,12 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
+import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ClipboardCopy, Maximize2, Pencil, Plus, Search } from "lucide-react"
 import { modeLabel, type EquipmentMode } from "@compass/domain"
 import { toast } from "sonner"
+import { importEquipmentCsv } from "@/app/actions/equipment"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -20,6 +22,8 @@ import {
   type EquipmentFilters,
   type LibrarySort,
 } from "@/lib/equipment-filters"
+import { downloadEquipmentFile } from "@/lib/equipment-export"
+import { cargoFitsEquipment, type FitCargo } from "@/lib/equipment-fit"
 import { equipmentVolumeM3 } from "@/lib/equipment-metrics"
 import { formatCm, formatCost, formatEnvelope, formatKg, formatM3 } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -81,6 +85,10 @@ export function EquipmentBrowser({
 
   const [stageOpen, setStageOpen] = useState(false)
   const [editor, setEditor] = useState<"create" | "edit" | null>(null)
+  const [compareIds, setCompareIds] = useState<string[]>([])
+  const [fit, setFit] = useState<FitCargo | null>(null)
+  const [importReport, setImportReport] = useState<{ created: number; errors: { row: number; message: string }[] } | null>(null)
+  const [importing, setImporting] = useState(false)
   const visibleId = filtered.some((item) => item.id === selectedId) ? selectedId : (filtered[0]?.id ?? null)
   if (visibleId !== selectedId) setSelectedId(visibleId)
   const [trackedSelection, setTrackedSelection] = useState(visibleId)
@@ -89,6 +97,17 @@ export function EquipmentBrowser({
     setEditor(null)
   }
   const selected = filtered.find((item) => item.id === visibleId) ?? null
+
+  function toggleCompare(id: string) {
+    setCompareIds((current) => {
+      if (current.includes(id)) return current.filter((entry) => entry !== id)
+      if (current.length >= 4) {
+        toast.error("Compare up to 4 units.")
+        return current
+      }
+      return [...current, id]
+    })
+  }
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -202,6 +221,55 @@ export function EquipmentBrowser({
           <ActiveFilters filters={filters} onPatch={patchFilters} />
         </div>
 
+        <FitPanel onChange={setFit} />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => downloadEquipmentFile(filtered, "csv")}>
+            Export CSV
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => downloadEquipmentFile(filtered, "xlsx")}>
+            Export XLSX
+          </Button>
+          {canManage ? (
+            <label className="inline-flex cursor-pointer items-center rounded-md border bg-background px-3 text-sm h-8">
+              {importing ? "Importing…" : "Import CSV"}
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                className="sr-only"
+                disabled={importing}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ""
+                  if (file) void importCsv(file, setImporting, setImportReport)
+                }}
+              />
+            </label>
+          ) : null}
+          {compareIds.length > 0 ? (
+            <Link
+              href={`/equipment/compare?ids=${compareIds.join(",")}`}
+              className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-sm text-primary-foreground"
+            >
+              Compare {compareIds.length}
+            </Link>
+          ) : null}
+        </div>
+        {importReport ? (
+          <div className="rounded-md border bg-card p-3 text-sm" aria-live="polite">
+            <p>
+              Created {importReport.created}. {importReport.errors.length} {importReport.errors.length === 1 ? "row" : "rows"} failed.
+            </p>
+            {importReport.errors.length > 0 ? (
+              <ul className="mt-2 space-y-1 text-destructive">
+                {importReport.errors.map((issue) => (
+                  <li key={`${issue.row}-${issue.message}`}>
+                    Row {issue.row}: {issue.message}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
         <p className="text-sm text-muted-foreground">
           Showing {filtered.length} of {items.length} sea, air, road, and pallet units · press / to search.
         </p>
@@ -220,6 +288,9 @@ export function EquipmentBrowser({
             selectedId={visibleId}
             sort={filters.sort}
             dir={filters.dir}
+            compareIds={compareIds}
+            fit={fit}
+            onCompare={toggleCompare}
             onSelect={setSelectedId}
             onSort={(sort) => {
               if (filters.sort === sort) patchFilters({ dir: filters.dir === "asc" ? "desc" : "asc" })
@@ -236,8 +307,17 @@ export function EquipmentBrowser({
                 <ul className="divide-y overflow-hidden rounded-md border bg-card">
                   {group.items.map((item) => {
                     const isSelected = item.id === visibleId
+                    const fits = fit ? cargoFitsEquipment(fit, item) : false
                     return (
-                      <li key={item.id}>
+                      <li key={item.id} className={cn("flex items-stretch", fits && "bg-emerald-50 ring-2 ring-inset ring-emerald-800")}>
+                        <label className="flex items-center px-3">
+                          <input
+                            type="checkbox"
+                            checked={compareIds.includes(item.id)}
+                            onChange={() => toggleCompare(item.id)}
+                            aria-label={`Compare ${item.name}`}
+                          />
+                        </label>
                         <button
                           type="button"
                           onClick={() => setSelectedId(item.id)}
@@ -255,6 +335,7 @@ export function EquipmentBrowser({
                             </span>
                           </span>
                           <span className="text-sm text-muted-foreground sm:text-right">
+                            {fits ? <span className="mr-2 font-medium text-emerald-950">Fits</span> : null}
                             {formatKg(item.maxPayloadKg)} payload
                             {item.axleGroups.length > 0 ? ` · ${item.axleGroups.length} axle groups` : ""}
                           </span>
@@ -421,6 +502,7 @@ function EquipmentDetail({
           <Spec label="Door" value={`${formatCm(item.doorWidthCm)} × ${formatCm(item.doorHeightCm)}`} />
         ) : null}
         <Spec label="Workbook id" value={item.externalId ?? "—"} />
+        <Spec label="Used in" value={`${item.projectCount} ${item.projectCount === 1 ? "project" : "projects"}`} />
       </dl>
       {item.sizeLabel ? <p className="text-xs text-muted-foreground">Source size: {item.sizeLabel}</p> : null}
       {item.extendable && item.maxExtendedLengthCm ? (
@@ -561,6 +643,75 @@ async function copySpecs(item: EquipmentListItem) {
   }
 }
 
+function FitPanel({ onChange }: { onChange: (cargo: FitCargo | null) => void }) {
+  const [lengthCm, setLengthCm] = useState("")
+  const [widthCm, setWidthCm] = useState("")
+  const [heightCm, setHeightCm] = useState("")
+  const [weightKg, setWeightKg] = useState("")
+  const cargo = readFit(lengthCm, widthCm, heightCm, weightKg)
+  function update(next: { lengthCm?: string; widthCm?: string; heightCm?: string; weightKg?: string }) {
+    const length = next.lengthCm ?? lengthCm
+    const width = next.widthCm ?? widthCm
+    const height = next.heightCm ?? heightCm
+    const weight = next.weightKg ?? weightKg
+    if (next.lengthCm != null) setLengthCm(next.lengthCm)
+    if (next.widthCm != null) setWidthCm(next.widthCm)
+    if (next.heightCm != null) setHeightCm(next.heightCm)
+    if (next.weightKg != null) setWeightKg(next.weightKg)
+    onChange(readFit(length, width, height, weight))
+  }
+  return (
+    <form className="grid gap-3 rounded-md border bg-card p-3 sm:grid-cols-4" onSubmit={(event) => event.preventDefault()}>
+      <p className="text-sm font-medium sm:col-span-4">Will it fit?</p>
+      <FitInput label="Cargo length (cm)" value={lengthCm} onChange={(lengthCm) => update({ lengthCm })} />
+      <FitInput label="Cargo width (cm)" value={widthCm} onChange={(widthCm) => update({ widthCm })} />
+      <FitInput label="Cargo height (cm)" value={heightCm} onChange={(heightCm) => update({ heightCm })} />
+      <FitInput label="Cargo weight (kg)" value={weightKg} onChange={(weightKg) => update({ weightKg })} />
+      <p className="text-xs text-muted-foreground sm:col-span-4">
+        {cargo ? "Units that can take this cargo, including the door, are highlighted." : "Enter length, width, height, and weight to highlight units that fit."}
+      </p>
+    </form>
+  )
+}
+
+function FitInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const id = label.toLowerCase().replace(/[^a-z]+/g, "-")
+  return (
+    <label className="space-y-1 text-xs text-muted-foreground" htmlFor={id}>
+      <span className="block">{label}</span>
+      <Input id={id} type="number" min="0.1" step="0.1" value={value} onChange={(event) => onChange(event.target.value)} className="h-8" />
+    </label>
+  )
+}
+
+function readFit(lengthCm: string, widthCm: string, heightCm: string, weightKg: string): FitCargo | null {
+  const cargo = {
+    lengthCm: Number(lengthCm),
+    widthCm: Number(widthCm),
+    heightCm: Number(heightCm),
+    weightKg: Number(weightKg),
+  }
+  if (Object.values(cargo).some((value) => !Number.isFinite(value) || value <= 0)) return null
+  return cargo
+}
+
+async function importCsv(
+  file: File,
+  setImporting: (value: boolean) => void,
+  setReport: (report: { created: number; errors: { row: number; message: string }[] } | null) => void,
+) {
+  setImporting(true)
+  const text = await file.text()
+  const result = await importEquipmentCsv(text)
+  setImporting(false)
+  if (!result.ok) {
+    toast.error(result.error)
+    return
+  }
+  setReport({ created: result.created, errors: result.errors })
+  toast.success(result.created === 1 ? "Imported 1 unit." : `Imported ${result.created} units.`)
+}
+
 function RangeField({
   label,
   value,
@@ -654,6 +805,9 @@ function EquipmentTable({
   selectedId,
   sort,
   dir,
+  compareIds,
+  fit,
+  onCompare,
   onSelect,
   onSort,
 }: {
@@ -661,6 +815,9 @@ function EquipmentTable({
   selectedId: string | null
   sort: LibrarySort
   dir: "asc" | "desc"
+  compareIds: string[]
+  fit: FitCargo | null
+  onCompare: (id: string) => void
   onSelect: (id: string) => void
   onSort: (sort: LibrarySort) => void
 }) {
@@ -678,6 +835,9 @@ function EquipmentTable({
       <table className="w-full min-w-[760px] text-left text-sm">
         <thead>
           <tr className="border-b">
+            <th className="px-3 py-2 font-medium">
+              <span className="sr-only">Compare</span>
+            </th>
             {columns.map((column) => (
               <th key={column.key} className="px-3 py-2 font-medium" aria-sort={sort === column.key ? (dir === "asc" ? "ascending" : "descending") : "none"}>
                 <button type="button" className="inline-flex items-center gap-1" onClick={() => onSort(column.key)}>
@@ -691,12 +851,13 @@ function EquipmentTable({
         <tbody>
           {items.map((item) => {
             const selected = item.id === selectedId
+            const fits = fit ? cargoFitsEquipment(fit, item) : false
             return (
               <tr
                 key={item.id}
                 tabIndex={0}
                 aria-selected={selected}
-                className={cn("cursor-pointer border-b last:border-0 hover:bg-muted/70", selected && "bg-muted")}
+                className={cn("cursor-pointer border-b last:border-0 hover:bg-muted/70", selected && "bg-muted", fits && "bg-emerald-50 ring-2 ring-inset ring-emerald-800")}
                 onClick={() => onSelect(item.id)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -705,7 +866,19 @@ function EquipmentTable({
                   }
                 }}
               >
-                <td className="px-3 py-2 font-medium">{item.name}</td>
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={compareIds.includes(item.id)}
+                    aria-label={`Compare ${item.name}`}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={() => onCompare(item.id)}
+                  />
+                </td>
+                <td className="px-3 py-2 font-medium">
+                  {item.name}
+                  {fits ? <span className="ml-2 font-medium text-emerald-950">Fits</span> : null}
+                </td>
                 <td className="px-3 py-2">{modeLabel(item.mode)}</td>
                 <td className="px-3 py-2">{formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm)}</td>
                 <td className="px-3 py-2">{formatM3(equipmentVolumeM3(item))}</td>

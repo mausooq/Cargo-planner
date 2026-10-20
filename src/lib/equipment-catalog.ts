@@ -36,12 +36,17 @@ export type EquipmentListItem = {
   contour: UldContour
   doorWidthCm: number | null
   doorHeightCm: number | null
+  projectCount: number
   maxCount?: number
 }
 
 export async function listEquipmentForOrg(orgId: string): Promise<EquipmentListItem[]> {
   const rows = await prisma.equipmentType.findMany({
     where: { OR: [{ orgId: null }, { orgId }] },
+    include: {
+      projectCandidates: { select: { projectId: true } },
+      instances: { select: { plan: { select: { projectId: true } } } },
+    },
   })
 
   const items = rows.map((row) => {
@@ -73,6 +78,7 @@ export async function listEquipmentForOrg(orgId: string): Promise<EquipmentListI
       contour: parseContour(row.contour),
       doorWidthCm: row.doorWidthCm,
       doorHeightCm: row.doorHeightCm,
+      projectCount: projectIds(row).size,
     } satisfies EquipmentListItem
   })
 
@@ -83,6 +89,16 @@ export async function listEquipmentForOrg(orgId: string): Promise<EquipmentListI
   })
 
   return items
+}
+
+function projectIds(row: {
+  projectCandidates: { projectId: string }[]
+  instances: { plan: { projectId: string } }[]
+}) {
+  const ids = new Set<string>()
+  for (const candidate of row.projectCandidates) ids.add(candidate.projectId)
+  for (const instance of row.instances) ids.add(instance.plan.projectId)
+  return ids
 }
 
 export async function countEquipmentByMode(orgId: string): Promise<Record<EquipmentMode, number>> {
