@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { canEditProjects, canManageEquipment, roleSchema } from "@compass/domain"
 import { EquipmentBrowser } from "@/components/equipment-browser"
 import { listEquipmentForOrg } from "@/lib/equipment-catalog"
@@ -39,12 +40,14 @@ export default async function EquipmentPage() {
           <p className="mt-1 text-sm text-muted-foreground">Run the seed script to import the equipment workbook.</p>
         </div>
       ) : (
-        <EquipmentBrowser
-          items={items}
-          canManage={canManageEquipment(role)}
-          canEditProjects={canEditProjects(role)}
-          projects={projects}
-        />
+        <Suspense fallback={<p className="text-sm text-muted-foreground">Loading the library…</p>}>
+          <EquipmentBrowser
+            items={items}
+            canManage={canManageEquipment(role)}
+            canEditProjects={canEditProjects(role)}
+            projects={projects}
+          />
+        </Suspense>
       )}
     </main>
   )
