@@ -10,11 +10,13 @@ export function AirPalletMesh({
   length,
   width,
   height,
+  wireframe = false,
 }: {
   name: string
   length: number
   width: number
   height: number
+  wireframe?: boolean
 }) {
   const winged = name.toLowerCase().includes("winged")
   const wing = winged ? 0.5 : 0
@@ -23,21 +25,21 @@ export function AirPalletMesh({
     <group>
       <mesh position={[length / 2, deck / 2, width / 2]}>
         <boxGeometry args={[length, deck, width]} />
-        <meshBasicMaterial color="#2a2f35" toneMapped={false} />
+        <meshBasicMaterial color="#2a2f35" toneMapped={false} wireframe={wireframe} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[length / 2, deck + 0.002, width / 2]}>
         <planeGeometry args={[length, width]} />
-        <meshBasicMaterial color="#2a2f35" toneMapped={false} />
+        <meshBasicMaterial color="#2a2f35" toneMapped={false} wireframe={wireframe} />
       </mesh>
       {winged ? (
         <>
           <mesh position={[length / 2, deck / 2, -wing / 2]}>
             <boxGeometry args={[length * 0.55, deck, wing]} />
-            <meshBasicMaterial color="#23282d" toneMapped={false} />
+            <meshBasicMaterial color="#23282d" toneMapped={false} wireframe={wireframe} />
           </mesh>
           <mesh position={[length / 2, deck / 2, width + wing / 2]}>
             <boxGeometry args={[length * 0.55, deck, wing]} />
-            <meshBasicMaterial color="#23282d" toneMapped={false} />
+            <meshBasicMaterial color="#23282d" toneMapped={false} wireframe={wireframe} />
           </mesh>
         </>
       ) : null}
@@ -51,11 +53,13 @@ export function AirContourMesh({
   width,
   height,
   contour,
+  wireframe = false,
 }: {
   length: number
   width: number
   height: number
   contour: UldContour | null
+  wireframe?: boolean
 }) {
   const geometry = useMemo(() => {
     const topHouse = hasUldSide(contour?.topLeft) || hasUldSide(contour?.topRight)
@@ -133,12 +137,13 @@ export function AirContourMesh({
           depthWrite={false}
           toneMapped={false}
           side={DoubleSide}
+          wireframe={wireframe}
         />
         <Edges color="#4b5563" threshold={12} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[length / 2, 0.003, floorZ]}>
         <planeGeometry args={[length, floorWidth]} />
-        <meshBasicMaterial color="#2a2f35" toneMapped={false} />
+        <meshBasicMaterial color="#2a2f35" toneMapped={false} wireframe={wireframe} />
       </mesh>
     </group>
   )
