@@ -156,7 +156,7 @@ export function EquipmentBrowser({
           Showing {filtered.length} of {items.length} sea, air, road, and pallet units. Press / to search.
         </p>
         {editor === "create" && canManage ? (
-          <EquipmentForm key={equipmentFormKey(null)} onClose={() => setEditor(null)} />
+          <EquipmentForm key={equipmentFormKey(null)} onClose={() => setEditor(null)} onSaved={setSelectedId} />
         ) : null}
 
         {groups.length === 0 ? (
@@ -219,6 +219,7 @@ export function EquipmentBrowser({
             editing={editor === "edit"}
             onEdit={() => setEditor("edit")}
             onCloseEdit={() => setEditor(null)}
+            onSaved={setSelectedId}
           />
         ) : (
           <EmptyDetail />
@@ -324,6 +325,7 @@ function EquipmentDetail({
   editing,
   onEdit,
   onCloseEdit,
+  onSaved,
 }: {
   item: EquipmentListItem
   onOpen: () => void
@@ -334,9 +336,10 @@ function EquipmentDetail({
   editing: boolean
   onEdit: () => void
   onCloseEdit: () => void
+  onSaved: (id: string) => void
 }) {
   if (editing && canManage) {
-    return <EquipmentForm key={equipmentFormKey(item)} item={item} onClose={onCloseEdit} />
+    return <EquipmentForm key={equipmentFormKey(item)} item={item} onClose={onCloseEdit} onSaved={onSaved} />
   }
   return (
     <article className="space-y-3 rounded-md border bg-card p-4">
