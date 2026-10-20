@@ -12,13 +12,16 @@ export const metadata = { title: "Equipment library" }
 export default async function EquipmentPage() {
   const user = await requireUser()
   const role = roleSchema.parse(user.role)
+  const canEdit = canEditProjects(role)
   const [items, projectRows] = await Promise.all([
     listEquipmentForOrg(user.orgId),
-    prisma.project.findMany({
-      where: { orgId: user.orgId },
-      orderBy: { updatedAt: "desc" },
-      select: { id: true, name: true, etd: true },
-    }),
+    canEdit
+      ? prisma.project.findMany({
+          where: { orgId: user.orgId },
+          orderBy: { updatedAt: "desc" },
+          select: { id: true, name: true, etd: true },
+        })
+      : Promise.resolve([]),
   ])
   const projects = projectRows.map((project) => ({
     id: project.id,
@@ -44,7 +47,7 @@ export default async function EquipmentPage() {
           <EquipmentBrowser
             items={items}
             canManage={canManageEquipment(role)}
-            canEditProjects={canEditProjects(role)}
+            canEditProjects={canEdit}
             projects={projects}
           />
         </Suspense>
