@@ -1,0 +1,292 @@
+// SQLite locally, shaped so the same models can move to Postgres.
+// Mode, role, and similar fields are strings (validated with zod) because
+// SQLite has no native enums. On Postgres they can become enum types later.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  equipment        EquipmentType[]
+  equipmentSets    EquipmentSet[]
+  projects         Project[]
+  apiKeys          ApiKey[]
+  mappingTemplates ImportMappingTemplate[]
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  /// ADMIN | PLANNER | VIEWER
+  role         String
+  orgId        String
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projects     Project[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([orgId])
+}
+
+model EquipmentType {
+  id                  String        @id @default(cuid())
+  /// Workbook ID. Null for equipment created in the app.
+  externalId          String?
+  /// SEA | AIR | ROAD | PALLET
+  mode                String
+  name                String
+  code                String        @unique
+  sizeLabel           String?
+  innerLengthCm       Float
+  innerWidthCm        Float
+  innerHeightCm       Float
+  /// True when the source sheet had no height and innerHeightCm is a stack cap.
+  heightOpen          Boolean       @default(false)
+  maxPayloadKg        Float
+  tareKg              Float         @default(0)
+  floors              Int           @default(1)
+  /// [{ name, positionFromFrontCm, maxKg }]
+  axleGroups          Json
+  /// Relative planning cost, not a currency amount.
+  costPerUnit         Float         @default(0)
+  isCustom            Boolean       @default(false)
+  extendable          Boolean       @default(false)
+  maxExtendedLengthCm Float?
+  /// NONE | FLATBED | STEPDECK | LOWBOY | OPEN_TOP
+  oogClass            String        @default("NONE")
+  notes               String?
+  /// { bottomLeft, bottomRight, topLeft, topRight } each { lengthMm, heightMm }
+  contour             Json?
+  doorWidthCm         Float?
+  doorHeightCm        Float?
+  orgId               String?
+  org                 Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  setMembers        EquipmentSetMember[]
+  projectCandidates ProjectEquipment[]
+  instances         EquipmentInstance[]
+
+  @@unique([externalId, mode])
+  @@index([mode])
+  @@index([orgId])
+}
+
+model EquipmentSet {
+  id        String       @id @default(cuid())
+  name      String
+  notes     String?
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  members   EquipmentSetMember[]
+  projectCandidates ProjectEquipment[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([orgId])
+}
+
+model EquipmentSetMember {
+  id              String        @id @default(cuid())
+  setId           String
+  equipmentTypeId String
+  sortOrder       Int
+  couplingGapCm   Float         @default(0)
+  set             EquipmentSet  @relation(fields: [setId], references: [id], onDelete: Cascade)
+  equipmentType   EquipmentType @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+
+  @@index([setId])
+}
+
+/// A load plan (loadlist): cargo, chosen equipment, rules, and results.
+model Project {
+  id             String       @id @default(cuid())
+  name           String
+  orgId          String
+  ownerId        String
+  /// SEA | AIR | ROAD | PALLET — the kind of equipment this list is planned into.
+  mode           String       @default("SEA")
+  etd            DateTime?
+  /// FEWEST_UNITS | LOWEST_COST
+  objective      String       @default("FEWEST_UNITS")
+  rules          Json
+  solverSettings Json
+  notes          String?
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner          User         @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  cargoItems     CargoItem[]
+  candidates     ProjectEquipment[]
+  plans          Plan[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([orgId])
+  @@index([ownerId])
+}
+
+model ProjectEquipment {
+  id              String         @id @default(cuid())
+  projectId       String
+  equipmentTypeId String?
+  equipmentSetId  String?
+  /// PRIMARY | SECONDARY (pallets and other carriers loaded inside the primary units)
+  role            String         @default("PRIMARY")
+  minCount        Int            @default(0)
+  /// null = unlimited
+  maxCount        Int?
+  costPerUnit     Float?
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  equipmentType   EquipmentType? @relation(fields: [equipmentTypeId], references: [id], onDelete: SetNull)
+  equipmentSet    EquipmentSet?  @relation(fields: [equipmentSetId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+}
+
+model CargoItem {
+  id               String   @id @default(cuid())
+  projectId        String
+  sortOrder        Int      @default(0)
+  sku              String?
+  name             String
+  lengthCm         Float
+  widthCm          Float
+  heightCm         Float
+  weightKg         Float
+  quantity         Int      @default(1)
+  /// BOX | CYLINDER_DRUM | PIPE
+  shape            String   @default("BOX")
+  /// FIXED | LONGSHIP | ROTATE_90 | TILTABLE | ANY | CUSTOM
+  orientation      String   @default("ANY")
+  stackable        Boolean  @default(true)
+  bottomOnly       Boolean  @default(false)
+  maxStackLoadKg   Float?
+  maxStackLayers   Int?
+  priority         Int      @default(0)
+  destinationStop  Int      @default(1)
+  consignmentId    String?
+  segregationClass String?
+  color            String?
+  customFields     Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  placements       Placement[]
+  unloaded         UnloadedItem[]
+
+  @@index([projectId])
+}
+
+model Plan {
+  id         String              @id @default(cuid())
+  projectId  String
+  seed       Int
+  settings   Json
+  status     String              @default("COMPLETE")
+  summary    Json
+  project    Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  placements Placement[]
+  unloaded   UnloadedItem[]
+  instances  EquipmentInstance[]
+  shareLinks ShareLink[]
+  createdAt  DateTime            @default(now())
+
+  @@index([projectId])
+}
+
+model EquipmentInstance {
+  id              String          @id @default(cuid())
+  planId          String
+  equipmentTypeId String
+  sequence        Int
+  label           String?
+  metrics         Json
+  plan            Plan            @relation(fields: [planId], references: [id], onDelete: Cascade)
+  equipmentType   EquipmentType   @relation(fields: [equipmentTypeId], references: [id], onDelete: Restrict)
+  placements      Placement[]
+
+  @@index([planId])
+}
+
+model Placement {
+  id                  String            @id @default(cuid())
+  planId              String
+  cargoItemId         String
+  instanceIndex       Int
+  equipmentInstanceId String
+  floor               Int               @default(1)
+  xCm                 Float
+  yCm                 Float
+  zCm                 Float
+  /// Axis permutation label, for example LWH.
+  rotation            String            @default("LWH")
+  lengthCm            Float
+  widthCm             Float
+  heightCm            Float
+  plan                Plan              @relation(fields: [planId], references: [id], onDelete: Cascade)
+  cargoItem           CargoItem         @relation(fields: [cargoItemId], references: [id], onDelete: Cascade)
+  equipmentInstance   EquipmentInstance @relation(fields: [equipmentInstanceId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+}
+
+model UnloadedItem {
+  id            String    @id @default(cuid())
+  planId        String
+  cargoItemId   String
+  instanceIndex Int
+  reasonCode    String
+  reasonDetail  String?
+  plan          Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  cargoItem     CargoItem @relation(fields: [cargoItemId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+}
+
+model ImportMappingTemplate {
+  id        String       @id @default(cuid())
+  orgId     String
+  name      String
+  mapping   Json
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([orgId, name])
+}
+
+model ApiKey {
+  id        String       @id @default(cuid())
+  orgId     String
+  name      String
+  keyHash   String
+  prefix    String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+  revokedAt DateTime?
+
+  @@index([prefix])
+  @@index([orgId])
+}
+
+model ShareLink {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  planId    String
+  plan      Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+}
