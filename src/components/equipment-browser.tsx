@@ -1,10 +1,11 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { Maximize2, Pencil, Plus, Search, X } from "lucide-react"
+import { Maximize2, Pencil, Plus, Search } from "lucide-react"
 import { modeLabel, type EquipmentMode } from "@compass/domain"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EquipmentForm } from "@/components/equipment-form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -76,18 +77,14 @@ export function EquipmentBrowser({
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        if (stageOpen) setStageOpen(false)
-        return
-      }
-      if (event.key === "/" && document.activeElement?.tagName !== "INPUT") {
-        event.preventDefault()
-        document.getElementById("equipment-search")?.focus()
-      }
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return
+      if (isTypingTarget(event.target)) return
+      event.preventDefault()
+      document.getElementById("equipment-search")?.focus()
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [stageOpen])
+  }, [])
 
   const groups = MODE_ORDER.map((entry) => ({
     mode: entry,
@@ -225,7 +222,7 @@ export function EquipmentBrowser({
           <EmptyDetail />
         )}
       </aside>
-      {stageOpen && selected ? <EquipmentStage item={selected} onClose={() => setStageOpen(false)} /> : null}
+      {selected ? <EquipmentStage item={selected} open={stageOpen} onClose={() => setStageOpen(false)} /> : null}
     </div>
   )
 }
@@ -269,49 +266,27 @@ function EmptyDetail() {
   )
 }
 
-function EquipmentStage({ item, onClose }: { item: EquipmentListItem; onClose: () => void }) {
+function isTypingTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true
+  return target.isContentEditable
+}
+
+function EquipmentStage({ item, open, onClose }: { item: EquipmentListItem; open: boolean; onClose: () => void }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 p-4 sm:p-8"
-      role="presentation"
-      onClick={onClose}
-    >
-      <div
-        className="flex h-[min(90vh,56rem)] w-full max-w-6xl flex-col overflow-hidden rounded-md border bg-card"
-        role="dialog"
-        aria-label={`3D view of ${item.name}`}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-5 py-3">
-          <div>
-            <p className="text-xs text-muted-foreground">{modeLabel(item.mode)}</p>
-            <h2 className="text-base font-semibold">{item.name}</h2>
-            <DimensionLegend
-              lengthCm={item.innerLengthCm}
-              widthCm={item.innerWidthCm}
-              heightCm={item.innerHeightCm}
-            />
-          </div>
-          <ButtonClose onClick={onClose} />
-        </div>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
+      <DialogContent className="flex h-[min(90vh,56rem)] max-w-6xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-b px-5 py-3">
+          <DialogDescription>{modeLabel(item.mode)}</DialogDescription>
+          <DialogTitle>{item.name}</DialogTitle>
+          <DimensionLegend lengthCm={item.innerLengthCm} widthCm={item.innerWidthCm} heightCm={item.innerHeightCm} />
+        </DialogHeader>
         <div className="min-h-0 flex-1">
           <EquipmentViewer item={item} className="h-full w-full bg-white" />
         </div>
-      </div>
-    </div>
-  )
-}
-
-function ButtonClose({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex size-8 items-center justify-center rounded-md border hover:bg-muted"
-      aria-label="Close 3D view"
-    >
-      <X className="size-5" />
-    </button>
+      </DialogContent>
+    </Dialog>
   )
 }
 
