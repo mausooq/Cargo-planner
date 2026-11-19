@@ -109,6 +109,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
   const latest = project.plans[0]
   const plan = latest ? planFromDb(latest) : null
+  // The saved plan no longer matches the cargo if any line was edited after it was calculated.
+  const planStale = Boolean(latest && project.cargoItems.some((item) => item.updatedAt > latest.createdAt))
 
   return (
     <main id="main">
@@ -128,6 +130,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           library={library}
           choices={choices}
           plan={plan}
+          planStale={planStale}
           templates={templates}
           canEdit={canEdit}
           canDelete={canDelete}

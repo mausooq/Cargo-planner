@@ -117,3 +117,150 @@
   text-transform: uppercase;
   color: var(--muted-foreground);
 }
+
+/* Printed load plan report: always light, no app chrome, one unit per page. */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
+
+  :root,
+  .dark {
+    --background: #ffffff;
+    --foreground: #111827;
+    --card: #ffffff;
+    --card-foreground: #111827;
+    --muted: #f3f4f6;
+    --muted-foreground: #4b5563;
+    --border: #d1d5db;
+  }
+
+  body {
+    background: #ffffff;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .print-page-break {
+    break-before: page;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid;
+  }
+}
+
+/* ---------- Motion ----------
+   Short, subtle transitions so the app feels smooth rather than snappy-jumpy.
+   Everything here is switched off for people who ask their OS for reduced motion. */
+/* Opacity only, on purpose: animating transform (or filling forwards) turns the wrapper into a
+   containing block, which traps full-screen children such as the playground inside it. */
+@keyframes compass-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes compass-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes compass-overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes compass-dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes compass-dialog-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.97);
+  }
+}
+
+/* Step and view changes in the planner. */
+.motion-enter {
+  /* No fill mode: once the fade ends, the element has no animation styles left at all. */
+  animation: compass-fade-in 160ms ease-out;
+}
+
+/* Radix dialogs: fade the backdrop, lift the panel. */
+[data-slot="dialog-overlay"][data-state="open"],
+[data-slot="alert-dialog-overlay"][data-state="open"] {
+  animation: compass-overlay-in 150ms ease-out;
+}
+[data-slot="dialog-overlay"][data-state="closed"],
+[data-slot="alert-dialog-overlay"][data-state="closed"] {
+  animation: compass-overlay-out 120ms ease-in;
+}
+[data-slot="dialog-content"][data-state="open"],
+[data-slot="alert-dialog-content"][data-state="open"] {
+  animation: compass-dialog-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+[data-slot="dialog-content"][data-state="closed"],
+[data-slot="alert-dialog-content"][data-state="closed"] {
+  animation: compass-dialog-out 120ms ease-in;
+}
+
+/* Smooth colour changes on interactive elements. In the base layer so any Tailwind
+   transition utility on a component still wins. */
+@layer base {
+  a,
+  button,
+  select,
+  input,
+  [role="tab"] {
+    transition-property: color, background-color, border-color, box-shadow, opacity;
+    transition-duration: 120ms;
+    transition-timing-function: ease-out;
+  }
+}
+
+/* Loading overlays fade in instead of popping. */
+[role="status"][aria-live="polite"] {
+  animation: compass-overlay-in 150ms ease-out;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

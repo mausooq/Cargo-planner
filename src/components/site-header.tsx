@@ -2,6 +2,7 @@ import Link from "next/link"
 import { roleLabel, type Role } from "@compass/domain"
 import { signOutAction } from "@/app/actions/logout"
 import { CompassMark } from "@/components/compass-mark"
+import { NavLinks } from "@/components/nav-links"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 
@@ -14,21 +15,14 @@ export type HeaderUser = {
 
 export function SiteHeader({ user }: { user: HeaderUser | null }) {
   return (
-    <header className="sticky top-0 z-30 border-b bg-card">
+    <header className="sticky top-0 z-30 border-b bg-card print:hidden">
       <div className="mx-auto flex h-12 w-full max-w-[1800px] items-center gap-4 px-4">
         <Link href={user ? "/dashboard" : "/"} className="flex items-center gap-2 text-sm font-semibold">
           <CompassMark className="size-5 text-primary" />
           Compass
         </Link>
         {user ? (
-          <nav className="flex items-center gap-1 text-sm" aria-label="Primary">
-            <Link href="/dashboard" className="rounded-md px-2.5 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
-              Projects
-            </Link>
-            <Link href="/equipment" className="rounded-md px-2.5 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground">
-              Equipment
-            </Link>
-          </nav>
+          <NavLinks />
         ) : null}
         <div className="ml-auto flex items-center gap-2">
           <ThemeToggle />

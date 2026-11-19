@@ -71,3 +71,13 @@ export function cargoLabelColor(hex: string): string {
   const luma = red * 0.299 + green * 0.587 + blue * 0.114
   return luma > 150 ? "#1a1d21" : "#ffffff"
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const
+
+/** "19 Oct 2026" from "2026-10-19". Fixed format so server and browser render the same text. */
+export function formatDate(iso: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
+  if (!match) return iso
+  const [, year, month, day] = match
+  return `${Number(day)} ${MONTHS[Number(month) - 1] ?? month} ${year}`
+}

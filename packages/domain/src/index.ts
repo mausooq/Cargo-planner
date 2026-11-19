@@ -149,9 +149,9 @@ export const equipmentRoleSchema = z.enum(EQUIPMENT_ROLES)
 export type EquipmentRole = z.infer<typeof equipmentRoleSchema>
 
 export const projectCreateSchema = z.object({
-  name: z.string().trim().min(1).max(120),
+  name: z.string().trim().min(1, "Give the project a name").max(120, "Keep the name under 120 characters"),
   mode: equipmentModeSchema,
-  etd: z.string().trim().min(1, "ETD is required"),
+  etd: z.string().trim().min(1, "Pick the estimated departure date"),
   notes: z.string().trim().max(2000).optional(),
   objective: objectiveSchema,
 })
@@ -313,3 +313,36 @@ export function roleLabel(role: Role): string {
   if (role === "PLANNER") return "Planner"
   return "Viewer"
 }
+
+/* ---------- Departure dates ---------- */
+
+/** "YYYY-MM-DD" for a date in local time (not UTC, so late evening doesn't count as tomorrow). */
+export function localIsoDate(date: Date = new Date()): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+export const ETD_IN_PAST_MESSAGE = "ETD can't be in the past. Pick today or a later date."
+
+/** Strict check for forms: the date is before today on this device. */
+export function isPastEtd(iso: string, now: Date = new Date()): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) && iso < localIsoDate(now)
+}
+
+/**
+ * Server check. Allows one day of slack because the server's "today" can be a day ahead of the
+ * user's (different time zones); the form already enforces the user's own today.
+ */
+export function isPastEtdOnServer(iso: string, now: Date = new Date()): boolean {
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) && iso < localIsoDate(yesterday)
+}
+
+/** The New project form's schema: the shared rules plus "ETD is today or later" on this device. */
+export const projectCreateFormSchema = projectCreateSchema.refine((value) => !isPastEtd(value.etd), {
+  message: ETD_IN_PAST_MESSAGE,
+  path: ["etd"],
+})
