@@ -6,6 +6,7 @@ import { modeLabel } from "@compass/domain"
 import type { EquipmentListItem } from "@/lib/equipment-catalog"
 import { equipmentVolumeM3 } from "@/lib/equipment-metrics"
 import { formatCm, formatEnvelope, formatKg, formatM3 } from "@/lib/format"
+import { WebGLGuard } from "@/components/webgl-guard"
 
 const COMPARE_COLORS = ["#9a3412", "#1e3a8a", "#3f6212", "#581c87"]
 
@@ -70,7 +71,7 @@ export function EquipmentCompare({ items }: { items: EquipmentListItem[] }) {
           <section className="overflow-hidden rounded-md border bg-white" aria-label="Overlaid outlines">
             <div className="border-b px-3 py-2 text-sm text-muted-foreground">Outlines share the same front-left corner. 1 is the first unit.</div>
             <div className="h-[28rem]">
-              <EquipmentCompareCanvas items={items} />
+              <WebGLGuard>{() => <EquipmentCompareCanvas items={items} />}</WebGLGuard>
             </div>
           </section>
         </>

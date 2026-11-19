@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic"
 import type { ViewerItem } from "@/components/equipment-viewer-canvas"
+import { WebGLGuard } from "@/components/webgl-guard"
 
 const EquipmentScene = dynamic(
   () => import("@/components/equipment-viewer-canvas").then((mod) => mod.EquipmentScene),
@@ -16,7 +17,7 @@ export const SCALE = 0.01
 export function EquipmentViewer({ item, className }: { item: ViewerItem; className?: string }) {
   return (
     <div className={className ?? "h-72 w-full overflow-hidden rounded-md border bg-white"}>
-      <EquipmentScene item={item} />
+      <WebGLGuard>{() => <EquipmentScene item={item} />}</WebGLGuard>
     </div>
   )
 }

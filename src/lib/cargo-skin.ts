@@ -15,8 +15,10 @@ export function makeFaceTexture(input: {
   aspect: number
 }): CanvasTexture | null {
   if (typeof document === "undefined") return null
-  const width = 512
-  const height = Math.max(128, Math.round(512 / Math.max(input.aspect, 0.35)))
+  // Kept small on purpose: a 256 px face is sharp at normal zoom, and big plans can show
+  // hundreds of faces at once (each one is uploaded to the graphics card).
+  const width = 256
+  const height = Math.min(512, Math.max(64, Math.round(256 / Math.max(input.aspect, 0.35))))
   const canvas = document.createElement("canvas")
   canvas.width = width
   canvas.height = height
@@ -28,8 +30,8 @@ export function makeFaceTexture(input: {
 
   if (input.hatch) {
     ctx.strokeStyle = "rgba(255,255,255,0.55)"
-    ctx.lineWidth = 10
-    const step = 28
+    ctx.lineWidth = 5
+    const step = 14
     for (let x = -height; x < width + height; x += step) {
       ctx.beginPath()
       ctx.moveTo(x, 0)
@@ -44,7 +46,7 @@ export function makeFaceTexture(input: {
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
     const lines = wrapLabel(ctx, label.toUpperCase(), width * 0.86, height * 0.8)
-    const size = Math.min(64, Math.round(height / (lines.length + 1.2)))
+    const size = Math.min(32, Math.round(height / (lines.length + 1.2)))
     ctx.font = `700 ${size}px ui-sans-serif, system-ui, sans-serif`
     const start = height / 2 - ((lines.length - 1) * size * 0.6) / 2
     for (const [index, line] of lines.entries()) {
@@ -54,7 +56,7 @@ export function makeFaceTexture(input: {
 
   const texture = new CanvasTexture(canvas)
   texture.colorSpace = SRGBColorSpace
-  texture.anisotropy = 8
+  texture.anisotropy = 4
   texture.needsUpdate = true
   return texture
 }
@@ -62,7 +64,7 @@ export function makeFaceTexture(input: {
 function wrapLabel(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxHeight: number): string[] {
   const words = text.split(/\s+/).filter(Boolean)
   if (words.length === 0) return []
-  ctx.font = "700 48px ui-sans-serif, system-ui, sans-serif"
+  ctx.font = "700 24px ui-sans-serif, system-ui, sans-serif"
   const lines: string[] = []
   let current = words[0] as string
   for (const word of words.slice(1)) {
@@ -74,7 +76,7 @@ function wrapLabel(ctx: CanvasRenderingContext2D, text: string, maxWidth: number
     }
   }
   lines.push(current)
-  const maxLines = Math.max(1, Math.floor(maxHeight / 36))
+  const maxLines = Math.max(1, Math.floor(maxHeight / 18))
   return lines.slice(0, maxLines)
 }
 
@@ -110,6 +112,98 @@ export function disposeMaterials(materials: Material[]) {
     }
     material.dispose()
   }
+}
+
+/*
+ * Shared material cache.
+ * Identical pieces (same cargo line, colour and size) reuse one set of materials and label
+ * textures instead of each drawing its own. A plan with 100 copies of a box used to create
+ * 300 canvases per 3D view; now it creates 3. Entries are reference counted: a component
+ * reads with getCargoMaterials() during render, holds with retainCargoMaterials() in an
+ * effect, and the entry is freed shortly after the last holder lets go.
+ */
+type CacheEntry = { materials: Material[]; refs: number; disposeTimer: ReturnType<typeof setTimeout> | null }
+const materialCache = new Map<string, CacheEntry>()
+
+export type CargoMaterialSpec = {
+  color: string
+  label: string
+  length: number
+  width: number
+  height: number
+  round: boolean
+  /** Small views (thumbnails, Top/Right/Front): flat colour, no label texture. */
+  simple: boolean
+}
+
+export function cargoMaterialKey(spec: CargoMaterialSpec): string {
+  const size = (value: number) => Math.round(value * 20) / 20
+  if (spec.round) return `round|${spec.color}`
+  if (spec.simple) return `flat|${spec.color}`
+  return ["box", spec.color, spec.label.trim().toUpperCase(), size(spec.length), size(spec.width), size(spec.height)].join("|")
+}
+
+export function getCargoMaterials(spec: CargoMaterialSpec): { key: string; materials: Material[] } {
+  const key = cargoMaterialKey(spec)
+  let entry = materialCache.get(key)
+  if (!entry) {
+    const materials = spec.round
+      ? cargoRoundMaterials(spec.color)
+      : spec.simple
+        ? Array.from({ length: 6 }, () => flatFace(spec.color))
+        : cargoBoxMaterials(spec.color, spec.label, spec.length, spec.width, spec.height)
+    entry = { materials, refs: 0, disposeTimer: null }
+    materialCache.set(key, entry)
+  }
+  return { key, materials: entry.materials }
+}
+
+let flatCache = new Map<string, MeshBasicMaterial>()
+function flatFace(color: string): MeshBasicMaterial {
+  let material = flatCache.get(color)
+  if (!material) {
+    material = new MeshBasicMaterial({ color, toneMapped: false })
+    flatCache.set(color, material)
+  }
+  return material
+}
+
+/** Call from an effect. Returns the release function to use as the effect cleanup. */
+export function retainCargoMaterials(key: string): () => void {
+  const entry = materialCache.get(key)
+  if (!entry) return () => undefined
+  entry.refs += 1
+  if (entry.disposeTimer) {
+    clearTimeout(entry.disposeTimer)
+    entry.disposeTimer = null
+  }
+  return () => {
+    entry.refs -= 1
+    if (entry.refs > 0) return
+    // Wait a moment: React may remount the same piece (step change, StrictMode) and want it back.
+    entry.disposeTimer = setTimeout(() => {
+      if (entry.refs > 0 || materialCache.get(key) !== entry) return
+      materialCache.delete(key)
+      if (key.startsWith("flat|")) {
+        const color = key.slice(5)
+        flatCache.get(color)?.dispose()
+        flatCache.delete(color)
+      } else {
+        disposeMaterials(entry.materials)
+      }
+    }, 2000)
+  }
+}
+
+/** Test helper. */
+export function cargoMaterialCacheSize(): number {
+  return materialCache.size
+}
+
+/** Test helper: forget everything without disposing (used between tests). */
+export function resetCargoMaterialCache(): void {
+  materialCache.clear()
+  flatCache = new Map()
 }
 
 export function itemsOverlap(a: PlanItemView, b: PlanItemView): boolean {

@@ -10,6 +10,8 @@ export type EditorSettings = {
   minSupportPct: number
   colourBlindPalette: boolean
   moveRealPieceWhileDragging: boolean
+  /** Line a dragged piece up exactly with the piece it is stacked on. */
+  snapToStack: boolean
 }
 
 const DEFAULTS: EditorSettings = {
@@ -18,6 +20,7 @@ const DEFAULTS: EditorSettings = {
   minSupportPct: 70,
   colourBlindPalette: false,
   moveRealPieceWhileDragging: false,
+  snapToStack: true,
 }
 
 export const useEditorSettings = create<EditorSettings & { patch: (next: Partial<EditorSettings>) => void }>()(

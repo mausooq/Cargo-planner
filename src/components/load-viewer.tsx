@@ -9,19 +9,19 @@ import { BoxGeometry, EdgesGeometry, Group, Plane, Vector2, Vector3 } from "thre
 import { CylinderOutline } from "@/components/cylinder-outline"
 import { DimensionMarks } from "@/components/dimension-marks"
 import { GhostMesh } from "@/components/ghost-mesh"
+import { PlanDiagram } from "@/components/plan-diagram"
+import { WebGLGuard } from "@/components/webgl-guard"
 import { PipeMesh, pipeInnerRadius } from "@/components/pipe-mesh"
 import { AirContourMesh, AirPalletMesh } from "@/components/equipment-hull"
 import { applyDropPosition, itemToPiece, pointerInFootprint, unitToWorld } from "@/lib/cargo-physics"
-import {
-  cargoBoxMaterials,
-  cargoRoundMaterials,
-  disposeMaterials,
-  fitsContour,
-} from "@/lib/cargo-skin"
+import { snapToStack } from "@/lib/cargo-snap"
+import { fallDurationMs, fallHeight, prefersReducedMotion } from "@/lib/fall-motion"
+import { fitsContour, getCargoMaterials, retainCargoMaterials } from "@/lib/cargo-skin"
 import { ghostColors, physicsFromSettings, useEditorSettings } from "@/lib/editor-settings"
 import { visualKind } from "@/lib/equipment-shape"
 import type { PlanItemView, PlanUnitView } from "@/lib/plan-view"
 import { resolveEquipmentContour, uldContourVolumeM3 } from "@/lib/uld-contour"
+import { cn } from "@/lib/utils"
 
 const SCALE = 0.01
 const SELECTED_COLOR = "#f59e0b"
@@ -33,6 +33,8 @@ function useOrbitLock() {
 }
 
 type DragPreview = {
+  /** Name of the piece the dragged one was lined up on, when snapping kicked in. */
+  snappedOn?: string
   itemId: string
   origin: PlanItemView
   ghost: PlanItemView
@@ -98,17 +100,53 @@ export function LoadViewer({
   const [anim, setAnim] = useState<PieceAnim | null>(null)
   const settings = useEditorSettings()
   const colors = ghostColors(settings.colourBlindPalette)
+  // Paint the page (and a loading message) first, then build the 3D scene on the next tick,
+  // so opening a big plan never looks frozen.
+  const [mounted, setMounted] = useState(false)
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setMounted(true), 30)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   return (
     <div
-      className={className ?? "h-[28rem] w-full overflow-hidden rounded-md border bg-white"}
+      className={cn(
+        "relative",
+        className ?? "h-[28rem] w-full overflow-hidden rounded-md border bg-white",
+      )}
       style={{ cursor: preview ? (preview.valid ? "grabbing" : "not-allowed") : undefined }}
     >
+      {!mounted ? <ViewerLoading compact={compact} pieces={unit.items.length} /> : null}
+      {mounted ? (
+      <WebGLGuard
+        compact={compact}
+        // If the browser cannot do 3D, show the same plan as a flat drawing instead of crashing.
+        fallback={<PlanDiagram unit={unit} view={camera === "iso" ? "side" : camera} bare={compact} className="h-full w-full" />}
+      >
+      {(onContextLost) => (
+      <>
+      {!ready ? <ViewerLoading compact={compact} pieces={unit.items.length} /> : null}
       <Canvas
+        onCreated={({ gl }) => {
+          gl.domElement.addEventListener(
+            "webglcontextlost",
+            (event) => {
+              event.preventDefault()
+              onContextLost()
+            },
+            { once: true },
+          )
+          // One more tick so the first frame is on screen before the message goes away.
+          window.setTimeout(() => setReady(true), 0)
+        }}
+        // Draw only when something changes (camera move, drag, animation) instead of 60 times a second.
+        frameloop="demand"
         camera={{ position, fov }}
         dpr={[1, 1.5]}
         flat
-        gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
+        // "default" lets the browser pick the GPU; forcing "high-performance" made weaker laptops crash more often.
+        gl={{ antialias: true, alpha: false, powerPreference: "default" }}
       >
         <color attach="background" args={["#ffffff"]} />
         <ambientLight intensity={0.4} />
@@ -152,6 +190,7 @@ export function LoadViewer({
               onPreview={setPreview}
               onAnim={setAnim}
               onDragActive={onDragActive}
+              simple={compact}
             />
           ))}
           {preview ? (
@@ -184,14 +223,62 @@ export function LoadViewer({
         </OrbitLockContext.Provider>
         <OrbitControls
           makeDefault
+          enableDamping
+          dampingFactor={0.12}
           enabled={orbitOn}
           enablePan
           enableZoom
           enableRotate={camera === "iso"}
           target={target}
         />
+        <CameraSync position={position} target={target} />
       </Canvas>
+      </>
+      )}
+      </WebGLGuard>
+      ) : null}
       {preview ? <DragTooltip preview={preview} validColor={colors.valid} invalidColor={colors.invalid} /> : null}
+    </div>
+  )
+}
+
+/**
+ * Moves the camera when the view (Iso / Top / Right / Front) changes. The canvas draws on demand,
+ * so it also asks for a frame; before, the always-on render loop happened to pick the change up.
+ */
+function CameraSync({ position, target }: { position: [number, number, number]; target: [number, number, number] }) {
+  const camera = useThree((state) => state.camera)
+  const controls = useThree((state) => state.controls) as { target: Vector3; update: () => void } | null
+  const invalidate = useThree((state) => state.invalidate)
+  useEffect(() => {
+    camera.position.set(...position)
+    if (controls) {
+      controls.target.set(...target)
+      controls.update()
+    } else {
+      camera.lookAt(...target)
+    }
+    invalidate()
+  }, [camera, controls, invalidate, position, target])
+  return null
+}
+
+function ViewerLoading({ compact, pieces }: { compact: boolean; pieces: number }) {
+  return (
+    <div
+      className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 text-neutral-700"
+      role="status"
+      aria-live="polite"
+    >
+      {compact ? (
+        <span className="size-5 animate-spin rounded-full border-2 border-neutral-300 border-t-emerald-700" aria-hidden="true" />
+      ) : (
+        <div className="flex flex-col items-center gap-2 text-sm">
+          <span className="size-7 animate-spin rounded-full border-2 border-neutral-300 border-t-emerald-700" aria-hidden="true" />
+          <span>Preparing 3D view{pieces > 50 ? ` (${pieces} pieces)` : ""}…</span>
+        </div>
+      )}
+      <span className="sr-only">Loading 3D view</span>
     </div>
   )
 }
@@ -222,7 +309,9 @@ function CargoPiece({
   onPreview,
   onAnim,
   onDragActive,
+  simple = false,
 }: {
+  simple?: boolean
   item: PlanItemView
   unit: PlanUnitView
   camera: ViewerCamera
@@ -259,17 +348,26 @@ function CargoPiece({
   const viewRef = useRef(camera)
   const previewRef = useRef(preview)
   const group = useRef<Group>(null)
-  const { camera: threeCamera, gl, raycaster } = useThree()
+  const { camera: threeCamera, gl, raycaster, invalidate } = useThree()
   const setOrbit = useOrbitLock()
   const settings = useEditorSettings()
 
-  const materials = useMemo(() => {
-    const color = selected ? SELECTED_COLOR : item.color
-    if (drum || pipe) return cargoRoundMaterials(color)
-    return cargoBoxMaterials(color, item.name, length, width, height)
-  }, [drum, pipe, item.color, item.name, length, width, height, selected])
+  // Shared across identical pieces and viewers (see getCargoMaterials). Small views use flat colour.
+  const { key: materialKey, materials } = useMemo(
+    () =>
+      getCargoMaterials({
+        color: selected ? SELECTED_COLOR : item.color,
+        label: item.name,
+        length,
+        width,
+        height,
+        round: drum || pipe,
+        simple,
+      }),
+    [drum, pipe, item.color, item.name, length, width, height, selected, simple],
+  )
 
-  useEffect(() => () => disposeMaterials(materials), [materials])
+  useEffect(() => retainCargoMaterials(materialKey), [materialKey])
 
   useEffect(() => {
     itemRef.current = item
@@ -278,10 +376,55 @@ function CargoPiece({
     previewRef.current = preview
   }, [camera, item, preview, unit])
 
-  useFrame(() => {
+  // The canvas draws on demand, and this piece is positioned inside useFrame, so ask for a frame
+  // whenever anything that moves it changes: a new position (drag, arrow keys, rotate, undo),
+  // the drag preview, the selection colour, or the start of a snap/shake animation.
+  useEffect(() => {
+    invalidate()
+  }, [invalidate, item, preview, anim, dragging, selected, materials])
+
+  // Smooth falling: when gravity lowers this piece (something under it was moved away), animate
+  // from the old height to the new one instead of jumping. Rises (undo, reset) stay instant.
+  const restingZ = useRef(item.z)
+  const fall = useRef<{ from: number; to: number; start: number; ms: number } | null>(null)
+  useEffect(() => {
+    const previous = restingZ.current
+    restingZ.current = item.z
+    const ownMove = dragging || (anim !== null && anim.id === item.id)
+    if (!playground || ownMove || prefersReducedMotion()) {
+      fall.current = null
+      return
+    }
+    if (previous - item.z > 0.5) {
+      const active = fall.current
+      // If it was already falling, carry on from where it is now rather than restarting at the top.
+      const from = active
+        ? fallHeight(active.from, active.to, Math.min(1, (performance.now() - active.start) / active.ms))
+        : previous
+      fall.current = { from, to: item.z, start: performance.now(), ms: fallDurationMs(from - item.z) }
+      invalidate()
+    } else if (item.z > previous) {
+      fall.current = null
+    }
+  }, [anim, dragging, invalidate, item.id, item.z, playground])
+
+  useFrame((state) => {
     const mesh = group.current
     if (!mesh) return
     const now = performance.now()
+    const falling = fall.current
+    if (falling && !(anim && anim.id === item.id)) {
+      const t = Math.min(1, (now - falling.start) / falling.ms)
+      const z = fallHeight(falling.from, falling.to, t)
+      mesh.position.set(
+        (item.x + item.lengthCm / 2) * SCALE,
+        (z + item.heightCm / 2) * SCALE,
+        (item.y + item.widthCm / 2) * SCALE,
+      )
+      if (t >= 1) fall.current = null
+      else state.invalidate()
+      return
+    }
     if (anim && anim.id === item.id) {
       const span = anim.mode === "commit" ? 120 : 220
       const t = Math.min(1, (now - anim.start) / span)
@@ -298,6 +441,8 @@ function CargoPiece({
         (y + item.widthCm / 2) * SCALE,
       )
       if (t >= 1) onAnim(null)
+      // On-demand rendering: ask for the next frame until the snap or shake finishes.
+      else state.invalidate()
       return
     }
     const shown =
@@ -329,17 +474,35 @@ function CargoPiece({
       const view = viewRef.current
       const point = hitOnDragPlane(plane, hit, raycaster.ray, view, current, live)
       if (!point) return
-      const desired = draggedItem(current, live, view, point, grab.current)
+      const free = draggedItem(current, live, view, point, grab.current)
       const unitX = point.x / SCALE + live.lengthCm / 2
       const unitY = point.z / SCALE + live.widthCm / 2
       const outside = !pointerInFootprint(unitX, unitY, live)
-      const result = validateDrop(
-        unitToWorld(live),
-        live.items.map(itemToPiece),
-        itemToPiece(desired),
-        { x: desired.x, y: desired.y, z: desired.z },
-        physicsFromSettings(useEditorSettings.getState(), live.maxPayloadKg),
-      )
+      const editor = useEditorSettings.getState()
+      const physics = physicsFromSettings(editor, live.maxPayloadKg)
+      const others = live.items.map(itemToPiece)
+      const check = (candidate: PlanItemView) =>
+        validateDrop(unitToWorld(live), others, itemToPiece(candidate), { x: candidate.x, y: candidate.y, z: candidate.z }, physics)
+      // Stacking aid: line the piece up exactly with the one it would land on. Keep the snap only
+      // if it is still a valid drop; otherwise fall back to exactly where the pointer is.
+      const snap = editor.snapToStack
+        ? snapToStack(
+            free,
+            live.items.filter((entry) => entry.id !== current.id),
+            { x: view !== "front", y: view !== "side" },
+          )
+        : { item: free, target: null }
+      let desired = free
+      let result = check(free)
+      let snappedOn: string | undefined
+      if (snap.target) {
+        const snapped = check(snap.item)
+        if (snapped.valid || !result.valid) {
+          desired = snap.item
+          result = snapped
+          snappedOn = snap.target.name
+        }
+      }
       const ghost = applyDropPosition(desired, result.position)
       const contourOk = fitsContour(ghost, live)
       const valid = !outside && result.valid && contourOk
@@ -349,6 +512,7 @@ function CargoPiece({
         ghost: outside ? { ...desired, z: 0 } : ghost,
         valid,
         message: outside || !contourOk ? "Outside container" : result.message,
+        snappedOn: valid ? snappedOn : undefined,
         clientX: event.clientX,
         clientY: event.clientY,
       })
@@ -686,7 +850,9 @@ function DragTooltip({
       >
         {preview.valid ? "✓" : "×"}
       </span>
-      <span>{preview.valid ? "Valid position" : preview.message}</span>
+      <span>
+        {preview.valid ? (preview.snappedOn ? `Lined up on top of ${preview.snappedOn}` : "Valid position") : preview.message}
+      </span>
     </div>
   )
 }
