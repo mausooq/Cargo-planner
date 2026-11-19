@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { importCargoRows, previewCargoFile, saveImportTemplate } from "@/app/actions/cargo"
 import { Button } from "@/components/ui/button"
@@ -62,6 +62,21 @@ export function CargoImportWizard({
   const [templateName, setTemplateName] = useState("")
   const [reading, setReading] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [fileName, setFileName] = useState<string | null>(null)
+  const panelRef = useRef<HTMLElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Bring the matching step into view as soon as a file has been read.
+  useEffect(() => {
+    if (sheet) panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }, [sheet])
+
+  function reset() {
+    setSheet(null)
+    setFileName(null)
+    // Clear the input so picking the same file again still triggers a change.
+    if (inputRef.current) inputRef.current.value = ""
+  }
 
   const mapping = useMemo<ImportMapping>(
     () => ({ lengthUnit, weightUnit, columns }),
@@ -72,6 +87,7 @@ export function CargoImportWizard({
 
   async function onFile(file: File | null) {
     if (!file) return
+    setFileName(file.name)
     setReading(true)
     const body = new FormData()
     body.set("file", file)
@@ -79,6 +95,7 @@ export function CargoImportWizard({
     setReading(false)
     if ("error" in result) {
       toast.error(result.error)
+      reset()
       return
     }
     setSheet(result.sheet)
@@ -118,27 +135,40 @@ export function CargoImportWizard({
       toast.error(result.error)
       return
     }
-    toast.success(`Imported ${result.count} cargo lines.`)
-    setSheet(null)
+    toast.success(`Imported ${result.count} cargo line${result.count === 1 ? "" : "s"}.`)
+    reset()
   }
 
   return (
-    <section className="rounded-md border bg-card p-4">
-      <h2 className="text-sm font-semibold">Import cargo</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Excel or CSV. Map columns, pick units, then import. Stored values are centimetres and kilograms.
-      </p>
-      <div className="mt-4 flex flex-wrap items-end gap-3">
-        <div className="space-y-2">
-          <Label htmlFor="cargo-file">File</Label>
-          <Input
-            id="cargo-file"
-            type="file"
-            accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(event) => onFile(event.target.files?.[0] ?? null)}
-          />
+    <>
+      {/* The one file picker. The "Import from Excel" button above the cargo table opens it. */}
+      <input
+        ref={inputRef}
+        id={CARGO_FILE_INPUT_ID}
+        type="file"
+        className="sr-only"
+        tabIndex={-1}
+        aria-label="Excel or CSV file to import"
+        accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        onChange={(event) => onFile(event.target.files?.[0] ?? null)}
+      />
+      {reading || sheet ? (
+    <section ref={panelRef} className="scroll-mt-20 rounded-md border bg-card p-4" aria-label="Import cargo">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold">Import {fileName ?? "file"}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {reading ? "Reading the file…" : "Check that each column matches the right field and the units are right, then import."}
+          </p>
         </div>
-        <p className="text-sm text-muted-foreground">{reading ? "Reading file…" : null}</p>
+        <div className="flex gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={reading || importing}>
+            Choose another file
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={reset} disabled={importing}>
+            Cancel
+          </Button>
+        </div>
       </div>
 
       {sheet && preview ? (
@@ -268,11 +298,20 @@ export function CargoImportWizard({
               onClick={onImport}
               disabled={importing || preview.drafts.length === 0 || preview.issues.length > 0}
             >
-              {importing ? "Importing…" : `Import ${preview.drafts.length} rows`}
+              {importing ? "Importing…" : `Import ${preview.drafts.length} row${preview.drafts.length === 1 ? "" : "s"}`}
             </Button>
           </div>
         </div>
       ) : null}
     </section>
+      ) : null}
+    </>
   )
+}
+
+/** Id of the hidden file input; the cargo table's "Import from Excel" button clicks it. */
+export const CARGO_FILE_INPUT_ID = "cargo-file"
+
+export function openCargoFilePicker() {
+  document.getElementById(CARGO_FILE_INPUT_ID)?.click()
 }
