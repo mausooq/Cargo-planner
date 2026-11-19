@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { pieceBelow, snapToStack } from "@/lib/cargo-snap"
+import { pieceBelow, snapToNeighbours, snapToStack } from "@/lib/cargo-snap"
 import type { PlanItemView } from "@/lib/plan-view"
 
 function box(id: string, x: number, y: number, z: number, size: [number, number, number] = [50, 50, 50]): PlanItemView {
@@ -69,5 +69,39 @@ describe("pieceBelow", () => {
     const floor = box("floor", 0, 0, 0)
     const stacked = box("stacked", 0, 0, 50)
     expect(pieceBelow(box("m", 10, 10, 0), [floor, stacked])?.id).toBe("stacked")
+  })
+})
+
+describe("snapToNeighbours", () => {
+  const room = { lengthCm: 590, widthCm: 235 }
+
+  it("slides a box flush against the neighbour in the same row", () => {
+    const neighbour = box("neighbour", 100, 0, 0)
+    // Dropped 6 cm short of touching (neighbour ends at 150).
+    const result = snapToNeighbours(box("m", 156, 0, 0), [neighbour], room)
+    expect(result.item.x).toBe(150)
+    expect(result.against).toBe("neighbour")
+  })
+
+  it("closes a small overlap by pushing it flush, too", () => {
+    const result = snapToNeighbours(box("m", 146, 0, 0), [box("neighbour", 100, 0, 0)], room)
+    expect(result.item.x).toBe(150)
+  })
+
+  it("snaps against the walls", () => {
+    expect(snapToNeighbours(box("m", 7, 60, 0), [], room)).toMatchObject({ item: { x: 0 }, against: "the wall" })
+    expect(snapToNeighbours(box("m", 300, 180, 0), [], room).item.y).toBe(185) // 235 - 50
+  })
+
+  it("ignores boxes in another row or on another level", () => {
+    const otherRow = box("other-row", 100, 120, 0) // y 120–170, dragged box is y 0–50
+    const upstairs = box("upstairs", 100, 0, 100)
+    expect(snapToNeighbours(box("m", 156, 0, 0), [otherRow, upstairs], room).item.x).toBe(156)
+  })
+
+  it("leaves the box alone when nothing is close", () => {
+    const result = snapToNeighbours(box("m", 300, 100, 0), [box("far", 0, 0, 0)], room)
+    expect(result).toMatchObject({ against: null })
+    expect(result.item).toMatchObject({ x: 300, y: 100 })
   })
 })

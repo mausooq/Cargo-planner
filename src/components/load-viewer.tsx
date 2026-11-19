@@ -5,7 +5,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import { validateDrop } from "@compass/physics"
 import { createContext, Suspense, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
-import { BoxGeometry, EdgesGeometry, Group, Plane, Vector2, Vector3 } from "three"
+import { BoxGeometry, EdgesGeometry, Group, Plane, Raycaster, Vector2, Vector3 } from "three"
 import { CylinderOutline } from "@/components/cylinder-outline"
 import { DimensionMarks } from "@/components/dimension-marks"
 import { GhostMesh } from "@/components/ghost-mesh"
@@ -14,7 +14,7 @@ import { WebGLGuard } from "@/components/webgl-guard"
 import { PipeMesh, pipeInnerRadius } from "@/components/pipe-mesh"
 import { AirContourMesh, AirPalletMesh } from "@/components/equipment-hull"
 import { applyDropPosition, itemToPiece, pointerInFootprint, unitToWorld } from "@/lib/cargo-physics"
-import { snapToStack } from "@/lib/cargo-snap"
+import { snapToNeighbours, snapToStack } from "@/lib/cargo-snap"
 import { fallDurationMs, fallHeight, prefersReducedMotion } from "@/lib/fall-motion"
 import { fitsContour, getCargoMaterials, retainCargoMaterials } from "@/lib/cargo-skin"
 import { ghostColors, physicsFromSettings, useEditorSettings } from "@/lib/editor-settings"
@@ -33,7 +33,7 @@ function useOrbitLock() {
 }
 
 type DragPreview = {
-  /** Name of the piece the dragged one was lined up on, when snapping kicked in. */
+  /** What snapping did, for the tooltip, e.g. "Lined up on top of oil" or "Against the wall". */
   snappedOn?: string
   itemId: string
   origin: PlanItemView
@@ -63,7 +63,10 @@ export function LoadViewer({
   onItemsChange,
   onDragActive,
   flashItem = null,
+  onDropPiece,
 }: {
+  /** Called when a set-aside piece is dropped on the container: its id and the floor point (cm). */
+  onDropPiece?: (id: string, at: { x: number; y: number }) => void
   unit: PlanUnitView
   camera?: ViewerCamera
   className?: string
@@ -109,13 +112,36 @@ export function LoadViewer({
     return () => window.clearTimeout(timer)
   }, [])
 
+  // Drop target for set-aside pieces dragged in from the playground's left panel.
+  const floorPicker = useRef<FloorPick | null>(null)
+  const [dropHover, setDropHover] = useState(false)
+  const acceptsDrop = (event: React.DragEvent) => Boolean(onDropPiece) && event.dataTransfer.types.includes(PIECE_DRAG_TYPE)
+
   return (
     <div
       className={cn(
         "relative",
         className ?? "h-[28rem] w-full overflow-hidden rounded-md border bg-white",
+        dropHover && "ring-4 ring-inset ring-emerald-500/60",
       )}
       style={{ cursor: preview ? (preview.valid ? "grabbing" : "not-allowed") : undefined }}
+      onDragOver={(event) => {
+        if (!acceptsDrop(event)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = "move"
+        if (!dropHover) setDropHover(true)
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropHover(false)
+      }}
+      onDrop={(event) => {
+        if (!acceptsDrop(event)) return
+        event.preventDefault()
+        setDropHover(false)
+        const id = event.dataTransfer.getData(PIECE_DRAG_TYPE)
+        const at = floorPicker.current?.(event.clientX, event.clientY)
+        if (id && at) onDropPiece?.(id, at)
+      }}
     >
       {!mounted ? <ViewerLoading compact={compact} pieces={unit.items.length} /> : null}
       {mounted ? (
@@ -232,6 +258,7 @@ export function LoadViewer({
           target={target}
         />
         <CameraSync position={position} target={target} />
+        {onDropPiece ? <FloorPicker pickRef={floorPicker} length={length} width={width} /> : null}
       </Canvas>
       </>
       )}
@@ -260,6 +287,44 @@ function CameraSync({ position, target }: { position: [number, number, number]; 
     }
     invalidate()
   }, [camera, controls, invalidate, position, target])
+  return null
+}
+
+/** Drag data type for set-aside pieces; the playground's left panel sets it, the viewer accepts it. */
+export const PIECE_DRAG_TYPE = "application/x-compass-piece"
+
+type FloorPick = (clientX: number, clientY: number) => { x: number; y: number } | null
+
+/** Turns a screen point into a floor position in the unit (cm), for drops from outside the canvas. */
+function FloorPicker({
+  pickRef,
+  length,
+  width,
+}: {
+  pickRef: React.MutableRefObject<FloorPick | null>
+  length: number
+  width: number
+}) {
+  const camera = useThree((state) => state.camera)
+  const gl = useThree((state) => state.gl)
+  useEffect(() => {
+    const raycaster = new Raycaster()
+    const floor = new Plane(new Vector3(0, 1, 0), 0)
+    const hit = new Vector3()
+    pickRef.current = (clientX, clientY) => {
+      const rect = gl.domElement.getBoundingClientRect()
+      raycaster.setFromCamera(
+        new Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1),
+        camera,
+      )
+      if (!raycaster.ray.intersectPlane(floor, hit)) return null
+      // The scene is centred: world x = unit x - length / 2, world z = unit y - width / 2 (in metres).
+      return { x: (hit.x + length / 2) / SCALE, y: (hit.z + width / 2) / SCALE }
+    }
+    return () => {
+      pickRef.current = null
+    }
+  }, [camera, gl, length, pickRef, width])
   return null
 }
 
@@ -483,24 +548,30 @@ function CargoPiece({
       const others = live.items.map(itemToPiece)
       const check = (candidate: PlanItemView) =>
         validateDrop(unitToWorld(live), others, itemToPiece(candidate), { x: candidate.x, y: candidate.y, z: candidate.z }, physics)
-      // Stacking aid: line the piece up exactly with the one it would land on. Keep the snap only
-      // if it is still a valid drop; otherwise fall back to exactly where the pointer is.
-      const snap = editor.snapToStack
-        ? snapToStack(
-            free,
-            live.items.filter((entry) => entry.id !== current.id),
-            { x: view !== "front", y: view !== "side" },
-          )
-        : { item: free, target: null }
+      // Snapping aids. Over another box: line up exactly on top of it. Otherwise: slide flush
+      // against a neighbour in the same row or a wall. A snap is kept only if it is still a valid
+      // drop (or the free spot is invalid anyway); otherwise the piece goes exactly where the pointer is.
+      const neighbours = live.items.filter((entry) => entry.id !== current.id)
+      const axes = { x: view !== "front", y: view !== "side" }
       let desired = free
       let result = check(free)
       let snappedOn: string | undefined
-      if (snap.target) {
-        const snapped = check(snap.item)
+      const adopt = (candidate: PlanItemView, label: string) => {
+        const snapped = check(candidate)
         if (snapped.valid || !result.valid) {
-          desired = snap.item
+          desired = candidate
           result = snapped
-          snappedOn = snap.target.name
+          snappedOn = label
+          return true
+        }
+        return false
+      }
+      if (editor.snapToStack) {
+        const stack = snapToStack(free, neighbours, axes)
+        const stacked = stack.target ? adopt(stack.item, `Lined up on top of ${stack.target.name}`) : false
+        if (!stacked) {
+          const side = snapToNeighbours(free, neighbours, live, axes)
+          if (side.against) adopt(side.item, side.against.startsWith("the ") ? `Against ${side.against}` : `Flush against ${side.against}`)
         }
       }
       const ghost = applyDropPosition(desired, result.position)
@@ -851,7 +922,7 @@ function DragTooltip({
         {preview.valid ? "✓" : "×"}
       </span>
       <span>
-        {preview.valid ? (preview.snappedOn ? `Lined up on top of ${preview.snappedOn}` : "Valid position") : preview.message}
+        {preview.valid ? (preview.snappedOn ?? "Valid position") : preview.message}
       </span>
     </div>
   )

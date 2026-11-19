@@ -9,13 +9,15 @@ import { toast } from "sonner"
 import { persistPlan, savePlanLayout } from "@/app/actions/plan"
 import type { CargoLine } from "@/components/cargo-grid"
 import { DragSettingsPanel } from "@/components/drag-settings"
-import { LoadViewer, type ViewerCamera } from "@/components/load-viewer"
+import { LoadViewer, PIECE_DRAG_TYPE, type ViewerCamera } from "@/components/load-viewer"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PlanDiagram } from "@/components/plan-diagram"
 import { Button } from "@/components/ui/button"
 import type { EquipmentListItem } from "@/lib/equipment-catalog"
 import { applyGravity } from "@/lib/cargo-gravity"
+import { snapToNeighbours, snapToStack } from "@/lib/cargo-snap"
 import { findFreeSpot } from "@/lib/cargo-spot"
+import { liveMetrics, type LiveMetrics } from "@/lib/plan-metrics"
 import { rotateItemFlat, tryPlaceItem } from "@/lib/cargo-skin"
 import { formatKg, formatM3, formatPct } from "@/lib/format"
 import { downloadPlanWorkbook, loadOrder } from "@/lib/plan-export"
@@ -517,6 +519,8 @@ function LoadPlanDetail({
   }
 
   const liveUnit = { ...unit, items }
+  // Recomputed on every move so the numbers follow the layout while editing.
+  const live = useMemo(() => liveMetrics(items, unit), [items, unit])
   const selected = items.find((item) => item.id === selectedId) ?? null
   const dirty = aside.length > 0 || items.some((item) => {
     const original = unit.items.find((entry) => entry.id === item.id)
@@ -568,6 +572,40 @@ function LoadPlanDetail({
     setItems(applyGravity(items.filter((item) => item.id !== selected.id), unit).items)
     setSelectedId(null)
   }, [aside, items, selected, unit])
+
+  /**
+   * Drop a set-aside piece where the user let go over the container: centred on the drop point,
+   * snapped like a drag (on top of a box, or flush against neighbours and walls), turned 90° if
+   * that is the only way it fits there.
+   */
+  const placeAsideAt = useCallback(
+    (id: string, at: { x: number; y: number }) => {
+      const piece = aside.find((entry) => entry.id === id)
+      if (!piece) return
+      const clamp = (value: number, size: number, room: number) => Math.min(Math.max(0, value), Math.max(0, room - size))
+      const tryAt = (candidate: PlanItemView) => {
+        const centred = {
+          ...candidate,
+          x: clamp(at.x - candidate.lengthCm / 2, candidate.lengthCm, unit.lengthCm),
+          y: clamp(at.y - candidate.widthCm / 2, candidate.widthCm, unit.widthCm),
+          z: 0,
+        }
+        const stack = snapToStack(centred, items)
+        const snapped = stack.target ? stack.item : snapToNeighbours(centred, items, unit).item
+        return tryPlaceItem(snapped, items, unit) ?? tryPlaceItem(centred, items, unit)
+      }
+      const placed = tryAt(piece) ?? (piece.shape === "BOX" ? tryAt(rotateItemFlat(piece)) : null)
+      if (!placed) {
+        toast.error(`${piece.name} doesn't fit there. Try another spot, or use Add back to find one.`)
+        return
+      }
+      setHistory((past) => [...past.slice(-40), { items, aside }])
+      setItems(applyGravity([...items, placed], unit).items)
+      setAside((current) => current.filter((entry) => entry.id !== id))
+      setSelectedId(placed.id)
+    },
+    [aside, items, unit],
+  )
 
   /** Put set-aside pieces back: their old spot if still free, otherwise the best free spot. */
   const addBack = useCallback(
@@ -772,9 +810,19 @@ function LoadPlanDetail({
           <h2 className="text-base font-semibold">{unit.equipmentName}</h2>
         </div>
         <dl className="flex flex-wrap gap-6 text-sm">
-          <Metric label="Weight" value={`${formatKg(unit.netKg)} · ${formatPct(unit.weightPct)}`} />
-          <Metric label="Volume" value={`${formatM3(unit.volumeM3)} · ${formatPct(unit.volumePct)}`} />
-          <Metric label="Floor" value={formatPct(unit.floorPct)} />
+          {dirty ? (
+            <>
+              <Metric label="Weight (edited)" value={`${formatKg(live.netKg)} · ${formatPct(live.weightPct)}`} />
+              <Metric label="Volume (edited)" value={`${formatM3(live.volumeM3)} · ${formatPct(live.volumePct)}`} />
+              <Metric label="Floor (edited)" value={formatPct(live.floorPct)} />
+            </>
+          ) : (
+            <>
+              <Metric label="Weight" value={`${formatKg(unit.netKg)} · ${formatPct(unit.weightPct)}`} />
+              <Metric label="Volume" value={`${formatM3(unit.volumeM3)} · ${formatPct(unit.volumePct)}`} />
+              <Metric label="Floor" value={formatPct(unit.floorPct)} />
+            </>
+          )}
         </dl>
       </div>
 
@@ -811,6 +859,7 @@ function LoadPlanDetail({
           <div className="border-b bg-card px-4 py-2">
             <DragSettingsPanel />
           </div>
+          <PlaygroundStats metrics={live} />
           <div className="flex min-h-0 flex-1">
             <PlaygroundItemList
               items={items}
@@ -828,6 +877,7 @@ function LoadPlanDetail({
               flashItem={flashItem}
               onSelect={setSelectedId}
               onItemsChange={commitItems}
+              onDropPiece={placeAsideAt}
               onDragActive={(active) => {
                 dragging.current = active
               }}
@@ -971,7 +1021,7 @@ function PlaygroundItemList({
           <div className="flex items-center justify-between gap-2 px-3 pt-2">
             <div>
               <p className="text-sm font-medium">Set aside</p>
-              <p className="text-xs text-muted-foreground">Out of the container for now</p>
+              <p className="text-xs text-muted-foreground">Drag one into the container, or click Add back</p>
             </div>
             {aside.length > 1 ? (
               <Button type="button" size="sm" variant="outline" className="h-7" onClick={onAddAllBack}>
@@ -981,7 +1031,16 @@ function PlaygroundItemList({
           </div>
           <ul className="max-h-48 overflow-auto py-1">
             {aside.map((item) => (
-              <li key={item.id} className="flex items-center gap-2.5 px-3 py-1.5 text-sm">
+              <li
+                key={item.id}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(PIECE_DRAG_TYPE, item.id)
+                  event.dataTransfer.effectAllowed = "move"
+                }}
+                title="Drag into the container, or click Add back"
+                className="flex cursor-grab items-center gap-2.5 px-3 py-1.5 text-sm active:cursor-grabbing"
+              >
                 <span className="size-3 shrink-0 rounded-sm border opacity-60" style={{ background: item.color }} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{item.name}</span>
@@ -1094,6 +1153,51 @@ function instanceIndexOf(item: PlanItemView): number {
 }
 
 type LayoutSnapshot = { items: PlanItemView[]; aside: PlanItemView[] }
+
+/** Live numbers for the playground: they follow every move, drop, fall, and set-aside. */
+function PlaygroundStats({ metrics }: { metrics: LiveMetrics }) {
+  const balance = !metrics.cog
+    ? "—"
+    : Math.abs(metrics.offCentreCm) < 1
+      ? "Centred"
+      : `${Math.round(Math.abs(metrics.offCentreCm))} cm ${metrics.offCentreCm > 0 ? "right" : "left"}`
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-1 border-b bg-card px-4 py-2 text-xs" aria-live="polite">
+      <Stat label="Pieces" value={String(metrics.pieces)} />
+      <Stat label="Weight" value={`${formatKg(metrics.netKg)} · ${formatPct(metrics.weightPct)}`} />
+      <Stat label="Volume" value={`${formatM3(metrics.volumeM3)} · ${formatPct(metrics.volumePct)}`} />
+      <Stat label="Floor" value={formatPct(metrics.floorPct)} />
+      <Stat
+        label="Centre of gravity"
+        value={metrics.cog ? `${formatPct(metrics.cog.alongPct)} from front · ${balance}` : "—"}
+        title="Where the weight balances: distance from the front wall, and how far from the middle of the width"
+      />
+      {metrics.warnings.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5">
+          {metrics.warnings.map((warning) => (
+            <li
+              key={warning}
+              className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-900 dark:bg-amber-500/15 dark:text-amber-200"
+            >
+              {warning}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <span className="text-emerald-700 dark:text-emerald-400">Balanced</span>
+      )}
+    </div>
+  )
+}
+
+function Stat({ label, value, title }: { label: string; value: string; title?: string }) {
+  return (
+    <span title={title}>
+      <span className="text-muted-foreground">{label} </span>
+      <span className="font-medium tabular-nums">{value}</span>
+    </span>
+  )
+}
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (

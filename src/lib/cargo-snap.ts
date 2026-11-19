@@ -1,4 +1,4 @@
-import type { PlanItemView } from "@/lib/plan-view"
+import type { PlanItemView, PlanUnitView } from "@/lib/plan-view"
 
 export type SnapAxes = { x: boolean; y: boolean }
 
@@ -67,4 +67,92 @@ export function snapToStack(item: PlanItemView, others: PlanItemView[], axes: Sn
   const y = axes.y ? snapAxis(item.y, item.widthCm, below.y, below.widthCm, reach) : null
   if (x === null && y === null) return { item, target: null }
   return { item: { ...item, x: x ?? item.x, y: y ?? item.y }, target: below }
+}
+
+export type NeighbourSnap = {
+  item: PlanItemView
+  /** What it clicked against, for the drag tooltip: a piece's name or "the wall". */
+  against: string | null
+}
+
+const MIN_SIDE_SNAP_CM = 5
+const MAX_SIDE_SNAP_CM = 12
+
+function sideReach(size: number): number {
+  return Math.min(MAX_SIDE_SNAP_CM, Math.max(MIN_SIDE_SNAP_CM, size * 0.25))
+}
+
+function spansOverlap(a0: number, a1: number, b0: number, b1: number): boolean {
+  return Math.min(a1, b1) - Math.max(a0, b0) > 0.5
+}
+
+type Candidate = { value: number; against: string }
+
+function nearest(start: number, candidates: Candidate[], reach: number): Candidate | null {
+  let best: Candidate | null = null
+  for (const candidate of candidates) {
+    const distance = Math.abs(candidate.value - start)
+    if (distance <= reach && (!best || distance < Math.abs(best.value - start))) best = candidate
+  }
+  return best
+}
+
+/**
+ * Side-by-side snapping: slides a dragged piece flush against the nearest neighbour in the same
+ * row and level, or against a container wall, when it is within about 12 cm. Only the axes the
+ * camera lets the user drag are changed.
+ */
+export function snapToNeighbours(
+  item: PlanItemView,
+  others: PlanItemView[],
+  unit: Pick<PlanUnitView, "lengthCm" | "widthCm">,
+  axes: SnapAxes = { x: true, y: true },
+): NeighbourSnap {
+  const sameLevel = (other: PlanItemView) => other.id !== item.id && spansOverlap(item.z, item.z + item.heightCm, other.z, other.z + other.heightCm)
+  let x = item.x
+  let y = item.y
+  const hits: string[] = []
+
+  if (axes.x) {
+    const row = others.filter((other) => sameLevel(other) && spansOverlap(item.y, item.y + item.widthCm, other.y, other.y + other.widthCm))
+    const hit = nearest(
+      item.x,
+      [
+        { value: 0, against: "the wall" },
+        { value: unit.lengthCm - item.lengthCm, against: "the doors" },
+        ...row.flatMap((other) => [
+          { value: other.x + other.lengthCm, against: other.name },
+          { value: other.x - item.lengthCm, against: other.name },
+        ]),
+      ],
+      sideReach(item.lengthCm),
+    )
+    if (hit) {
+      x = hit.value
+      hits.push(hit.against)
+    }
+  }
+  if (axes.y) {
+    const column = others.filter((other) => sameLevel(other) && spansOverlap(x, x + item.lengthCm, other.x, other.x + other.lengthCm))
+    const hit = nearest(
+      item.y,
+      [
+        { value: 0, against: "the wall" },
+        { value: unit.widthCm - item.widthCm, against: "the wall" },
+        ...column.flatMap((other) => [
+          { value: other.y + other.widthCm, against: other.name },
+          { value: other.y - item.widthCm, against: other.name },
+        ]),
+      ],
+      sideReach(item.widthCm),
+    )
+    if (hit) {
+      y = hit.value
+      hits.push(hit.against)
+    }
+  }
+  if (hits.length === 0) return { item, against: null }
+  // Prefer naming a piece over a wall in the tooltip.
+  const against = hits.find((hit) => !hit.startsWith("the ")) ?? hits[0] ?? null
+  return { item: { ...item, x, y }, against }
 }

@@ -13,9 +13,12 @@ export function DragSettingsPanel() {
         <Switch checked={settings.strictMode} onCheckedChange={(strictMode) => settings.patch({ strictMode })} />
         <Label className="text-xs">Strict drops</Label>
       </label>
-      <label className="flex items-center gap-2" title="When you drag a piece onto another, line it up exactly on top (same edges, or centred)">
+      <label
+        className="flex items-center gap-2"
+        title="While dragging: line a piece up exactly on top of another, or slide it flush against neighbours and walls"
+      >
         <Switch checked={settings.snapToStack} onCheckedChange={(snapToStack) => settings.patch({ snapToStack })} />
-        <Label className="text-xs">Snap when stacking</Label>
+        <Label className="text-xs">Snap to boxes &amp; walls</Label>
       </label>
       <label className="flex items-center gap-2">
         <Switch checked={settings.clampToWalls} onCheckedChange={(clampToWalls) => settings.patch({ clampToWalls })} />
