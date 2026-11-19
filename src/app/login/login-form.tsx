@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { DEMO_ACCOUNTS, DEMO_PASSWORD } from "@/lib/demo-accounts"
 
-export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
+export function LoginForm({ callbackUrl, showDemo }: { callbackUrl: string; showDemo: boolean }) {
   const [pendingDemo, setPendingDemo] = useState<string | null>(null)
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
@@ -42,10 +42,11 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
 
   return (
     <div className="rounded-md border bg-card p-4">
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" noValidate>
+      {/* method="post": if scripts fail to load, a plain submit must never put the password in the URL. */}
+      <form method="post" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" noValidate>
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" autoComplete="username" {...form.register("email")} />
+          <Input id="email" type="email" autoComplete="username" autoFocus {...form.register("email")} />
           {form.formState.errors.email ? (
             <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
           ) : null}
@@ -63,29 +64,31 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
         </Button>
       </form>
 
-      <div className="mt-6 border-t pt-4">
-        <p className="text-sm text-muted-foreground">
-          Local demo password: <span className="font-mono text-foreground">{DEMO_PASSWORD}</span>
-        </p>
-        <ul className="mt-3 space-y-2">
-          {DEMO_ACCOUNTS.map((account) => (
-            <li key={account.email}>
-              <button
-                type="button"
-                onClick={() => signInAs(account.email)}
-                disabled={pendingDemo !== null}
-                className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
-              >
-                <span>
-                  <span className="block font-medium">{roleLabel(account.role)}</span>
-                  <span className="text-muted-foreground">{account.email}</span>
-                </span>
-                <span>{pendingDemo === account.email ? "Signing in…" : "Use"}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {showDemo ? (
+        <div className="mt-6 border-t pt-4">
+          <p className="text-sm text-muted-foreground">
+            Local demo password: <span className="font-mono text-foreground">{DEMO_PASSWORD}</span>
+          </p>
+          <ul className="mt-3 space-y-2">
+            {DEMO_ACCOUNTS.map((account) => (
+              <li key={account.email}>
+                <button
+                  type="button"
+                  onClick={() => signInAs(account.email)}
+                  disabled={pendingDemo !== null}
+                  className="flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm hover:bg-muted disabled:opacity-60"
+                >
+                  <span>
+                    <span className="block font-medium">{roleLabel(account.role)}</span>
+                    <span className="text-muted-foreground">{account.email}</span>
+                  </span>
+                  <span>{pendingDemo === account.email ? "Signing in…" : "Use"}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   )
 }
