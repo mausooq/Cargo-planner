@@ -85,6 +85,28 @@ describe("fit and no fit", () => {
     expect(result.units[1]?.placements).toHaveLength(5)
   })
 
+  it("returns every piece as unloaded, without crashing, when nothing fits and restarts reach the shuffle phase", () => {
+    // Regression: with zero packable pieces, the shuffle step read copy[-1] and threw
+    // "Cannot read properties of undefined (reading 'cargo')".
+    const result = solve({
+      equipment: [box20],
+      cargo: [cargo({ id: "huge", lengthCm: 2000, widthCm: 2000, heightCm: 2000, quantity: 2 })],
+      settings: { restarts: 12, timeLimitMs: 60_000 },
+    })
+    expect(result.units).toHaveLength(0)
+    expect(result.unloaded).toHaveLength(2)
+  })
+
+  it("shuffles a single packable piece without crashing", () => {
+    const result = solve({
+      equipment: [box20],
+      cargo: [cargo({ id: "one" }), cargo({ id: "huge", lengthCm: 2000, widthCm: 2000, heightCm: 2000 })],
+      settings: { restarts: 12, timeLimitMs: 60_000 },
+    })
+    expect(result.units).toHaveLength(1)
+    expect(result.unloaded).toHaveLength(1)
+  })
+
   it("marks cargo that cannot fit any unit as out of gauge", () => {
     const result = solve({
       equipment: [box20],

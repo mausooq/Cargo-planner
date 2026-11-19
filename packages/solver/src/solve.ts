@@ -65,6 +65,8 @@ export function solve(
       bestUnloaded: best.unloaded.length,
     })
     if (best.unloaded.length === 0 && best.units.length <= 1) break
+    // Every piece is too big for every unit: reordering cannot change the outcome.
+    if (feasible.length === 0) break
   }
 
   const final = best ?? { units: [], unloaded: infeasible, totalCost: 0 }
@@ -266,6 +268,8 @@ function buildOrderings(settings: SolverSettings): Ordering[] {
 /** Small local shuffles that keep destination and priority blocks intact. */
 function perturb(ordered: Instance[], rng: Rng): Instance[] {
   const copy = ordered.slice()
+  // Nothing to swap. Without this guard an empty list reads copy[-1] and crashes.
+  if (copy.length < 2) return copy
   const swaps = Math.max(1, Math.floor(copy.length / 4))
   for (let count = 0; count < swaps; count += 1) {
     const index = rng.int(Math.max(1, copy.length - 1))
