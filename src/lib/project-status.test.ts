@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { projectStatus, relativeDays } from "@/lib/project-status"
+import { daysUntil, projectStatus, relativeDays, stepsDone } from "@/lib/project-status"
 
 const planAt = new Date("2026-11-10T10:00:00Z")
 
@@ -24,6 +24,23 @@ describe("projectStatus", () => {
     const base = { cargoCount: 2, equipmentCount: 1, lastCargoChange: new Date("2026-11-09T00:00:00Z") }
     expect(projectStatus({ ...base, plan: { createdAt: planAt, unloadedCount: 3 } }).label).toBe("3 pieces not loaded")
     expect(projectStatus({ ...base, plan: { createdAt: planAt, unloadedCount: 0 } }).kind).toBe("planned")
+  })
+})
+
+describe("stepsDone", () => {
+  it("counts finished planner steps for the progress bar", () => {
+    expect(["no-cargo", "needs-equipment", "not-calculated", "stale", "unloaded", "planned"].map((kind) => stepsDone(kind as never))).toEqual([
+      0, 1, 2, 2, 3, 4,
+    ])
+  })
+})
+
+describe("daysUntil", () => {
+  it("counts whole days and handles bad dates", () => {
+    const today = new Date(2026, 10, 18, 23, 0)
+    expect(daysUntil("2026-11-25", today)).toBe(7)
+    expect(daysUntil("2026-11-17", today)).toBe(-1)
+    expect(daysUntil("not-a-date", today)).toBeNull()
   })
 })
 

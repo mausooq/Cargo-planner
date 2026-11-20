@@ -31,12 +31,27 @@ export function projectStatus(input: {
   return { kind: "planned", label: "Planned", step: "plan", tone: "success" }
 }
 
+/** Whole days from today to the date (negative when it has passed), or null for a bad date. */
+export function daysUntil(iso: string, today = new Date()): number | null {
+  const target = new Date(`${iso}T00:00:00`)
+  if (Number.isNaN(target.getTime())) return null
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  return Math.round((target.getTime() - start.getTime()) / 86_400_000)
+}
+
+/** How many of the four planner steps are finished, for a progress bar. */
+export function stepsDone(kind: ProjectStatusKind): number {
+  if (kind === "no-cargo") return 0
+  if (kind === "needs-equipment") return 1
+  if (kind === "not-calculated" || kind === "stale") return 2
+  if (kind === "unloaded") return 3
+  return 4
+}
+
 /** "in 3 days", "today", "2 days ago" for an ETD shown next to the date. */
 export function relativeDays(iso: string, today = new Date()): string {
-  const target = new Date(`${iso}T00:00:00`)
-  if (Number.isNaN(target.getTime())) return ""
-  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-  const days = Math.round((target.getTime() - start.getTime()) / 86_400_000)
+  const days = daysUntil(iso, today)
+  if (days === null) return ""
   if (days === 0) return "today"
   if (days === 1) return "tomorrow"
   if (days === -1) return "yesterday"

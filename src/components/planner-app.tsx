@@ -235,20 +235,24 @@ export function PlannerApp({
           : "Done, back to projects"
 
   return (
-    <div className="flex min-h-[calc(100vh-3rem)] flex-col">
+    <div className="flex min-h-[calc(100vh-3.5rem)] flex-col">
       <div className="border-b bg-card">
-        <div className="mx-auto flex w-full max-w-[1800px] flex-wrap items-center gap-3 px-4 py-2.5">
+        <div className="mx-auto flex w-full max-w-[1800px] flex-wrap items-center gap-3 px-4 pt-3 pb-2.5">
+          <button
+            type="button"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground hover:text-foreground"
+            aria-label="Back to all projects"
+            title="All projects"
+            onClick={() => void navigate("dashboard")}
+          >
+            <ArrowLeft className="size-4" />
+          </button>
           <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted-foreground">
-              <button type="button" className="hover:text-foreground hover:underline" onClick={() => void navigate("dashboard")}>
-                Projects
-              </button>{" "}
-              /
-            </p>
-            <h1 className="truncate text-base font-semibold">{project.name}</h1>
-            <p className="text-xs text-muted-foreground">
-              {modeLabel(project.mode)} · {project.etd ? `ETD ${formatDate(project.etd)}` : "ETD missing"}
-              {project.notes ? ` · ${project.notes}` : ""}
+            <h1 className="truncate text-lg leading-tight font-semibold">{project.name}</h1>
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">{modeLabel(project.mode)}</span>
+              <span>{project.etd ? `ETD ${formatDate(project.etd)}` : "ETD missing"}</span>
+              {project.notes ? <span className="truncate">· {project.notes}</span> : null}
             </p>
           </div>
           <div className="ml-auto flex flex-wrap gap-2">
@@ -261,7 +265,7 @@ export function PlannerApp({
             {canDelete ? <DeleteProjectButton projectId={project.id} name={project.name} redirectTo="/dashboard" /> : null}
           </div>
         </div>
-        <div className="mx-auto w-full max-w-[1800px] px-4">
+        <div className="mx-auto w-full max-w-[1800px] px-4 pb-3">
           <PlannerSteps step={step} states={states} onChange={(target) => void navigate(target)} />
         </div>
       </div>
@@ -314,6 +318,7 @@ export function PlannerApp({
               canEdit={canEdit}
               projectMode={project.mode}
               cargo={readyLines}
+              objective={project.objective}
             />
           ) : null}
 

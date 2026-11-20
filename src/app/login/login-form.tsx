@@ -41,7 +41,7 @@ export function LoginForm({ callbackUrl, showDemo }: { callbackUrl: string; show
   const rootError = form.formState.errors.root?.message
 
   return (
-    <div className="rounded-md border bg-card p-4">
+    <div className="rounded-xl border bg-card p-6">
       {/* method="post": if scripts fail to load, a plain submit must never put the password in the URL. */}
       <form method="post" onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" noValidate>
         <div className="space-y-2">

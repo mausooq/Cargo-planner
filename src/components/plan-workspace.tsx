@@ -809,7 +809,7 @@ function LoadPlanDetail({
           </p>
           <h2 className="text-base font-semibold">{unit.equipmentName}</h2>
         </div>
-        <dl className="flex flex-wrap gap-6 text-sm">
+        <dl className="flex flex-wrap gap-2 text-sm">
           {dirty ? (
             <>
               <Metric label="Weight (edited)" value={`${formatKg(live.netKg)} · ${formatPct(live.weightPct)}`} />
@@ -1201,9 +1201,9 @@ function Stat({ label, value, title }: { label: string; value: string; title?: s
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="min-w-28 rounded-lg border bg-card px-3 py-2 shadow-card">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="font-medium">{value}</dd>
+      <dd className="text-sm font-semibold tabular-nums">{value}</dd>
     </div>
   )
 }

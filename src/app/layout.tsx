@@ -1,19 +1,8 @@
 import type { Metadata } from "next"
 import type { ReactNode } from "react"
-import { Geist, Geist_Mono } from "next/font/google"
 import { Providers } from "@/components/providers"
 import { Toaster } from "@/components/ui/sonner"
 import "./globals.css"
-
-const geist = Geist({
-  variable: "--font-geist",
-  subsets: ["latin"],
-})
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-})
 
 export const metadata: Metadata = {
   title: {
@@ -25,7 +14,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning className={`${geist.variable} ${geistMono.variable} h-full`}>
+    <html lang="en" suppressHydrationWarning className="h-full">
       <body className="flex min-h-full flex-col font-sans" suppressHydrationWarning>
         <Providers>
           <a

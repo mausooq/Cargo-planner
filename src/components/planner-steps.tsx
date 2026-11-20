@@ -33,7 +33,7 @@ export function PlannerSteps({
 }) {
   return (
     <nav aria-label="Load plan steps">
-      <ol className="grid grid-cols-4">
+      <ol className="grid grid-cols-4 gap-1 rounded-xl border bg-background p-1">
         {STEPS.map((id, index) => {
           const active = id === step
           const state = states[id]
@@ -47,38 +47,35 @@ export function PlannerSteps({
                 aria-disabled={locked || undefined}
                 title={locked ? (state.blocked ?? undefined) : undefined}
                 className={cn(
-                  "group relative flex w-full min-w-0 items-center justify-center gap-2 px-2 py-2.5 text-sm outline-none focus-visible:bg-muted",
-                  active ? "text-foreground" : locked ? "text-muted-foreground/60" : "text-muted-foreground hover:text-foreground",
+                  "flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                  active
+                    ? "bg-card text-foreground shadow-card ring-1 ring-border"
+                    : locked
+                      ? "text-muted-foreground/60"
+                      : "text-muted-foreground hover:bg-card/70 hover:text-foreground",
                 )}
               >
                 <span
                   className={cn(
-                    "flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
-                    active && "border-primary bg-primary text-primary-foreground",
-                    !active && state.done && "border-primary/40 bg-primary/10 text-primary",
-                    !active && !state.done && "bg-background",
+                    "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                    active && "bg-primary text-primary-foreground",
+                    !active && state.done && "bg-primary/15 text-primary",
+                    !active && !state.done && "bg-muted text-muted-foreground",
                   )}
                   aria-hidden="true"
                 >
-                  {state.done && !active ? (
-                    <Check className="size-3.5" />
-                  ) : locked ? (
-                    <Lock className="size-3" />
-                  ) : (
-                    index + 1
-                  )}
+                  {state.done && !active ? <Check className="size-3.5" /> : locked ? <Lock className="size-3" /> : index + 1}
                 </span>
-                <span className="min-w-0 text-left">
-                  <span className={cn("block truncate", active && "font-medium")}>{STEP_LABELS[id]}</span>
+                <span className="min-w-0">
+                  <span className={cn("block truncate", active && "font-semibold")}>{STEP_LABELS[id]}</span>
                   {state.summary ? (
-                    <span className="hidden truncate text-xs text-muted-foreground sm:block">{state.summary}</span>
+                    <span className="hidden truncate text-xs font-normal text-muted-foreground sm:block">{state.summary}</span>
                   ) : null}
                 </span>
                 <span className="sr-only">
                   {state.done ? " (complete)" : ""}
                   {locked ? ` (locked: ${state.blocked})` : ""}
                 </span>
-                {active ? <span className="absolute inset-x-4 -bottom-px h-0.5 rounded-full bg-primary" /> : null}
               </button>
             </li>
           )
