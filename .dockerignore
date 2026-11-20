@@ -1,0 +1,17 @@
+# Never send secrets, local databases, or build output into the image.
+.env
+.env.*
+!.env.example
+!.env.production.example
+prisma/*.db
+prisma/*.db-journal
+
+node_modules
+**/node_modules
+.next
+*.tsbuildinfo
+
+.git
+.claude
+images
+src/__tests__

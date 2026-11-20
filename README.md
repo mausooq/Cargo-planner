@@ -26,6 +26,11 @@ Copy `.env.example` to `.env` if you are not using the generated local env. `DAT
 
 The workbook stays at the repository root. The seed reads sheets Sea, Air, Land, and Pallets.
 
+## Deploying
+
+To run Compass on a server (for example an NVIDIA DGX) with Docker, follow [docs/DEPLOY_DGX.md](docs/DEPLOY_DGX.md).
+Use `pnpm user:set <email> <password>` to set real passwords before others sign in.
+
 ## Scripts
 
 | Command | What it does |

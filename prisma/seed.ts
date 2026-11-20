@@ -44,10 +44,11 @@ async function main() {
   for (const account of DEMO_ACCOUNTS) {
     await prisma.user.upsert({
       where: { email: account.email },
+      // Password only on create: re-running the seed (e.g. after a workbook update) must not reset
+      // passwords that were changed with `pnpm user:set`.
       update: {
         name: account.name,
         role: account.role,
-        passwordHash,
         orgId: org.id,
       },
       create: {

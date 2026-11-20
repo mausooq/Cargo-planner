@@ -1,0 +1,30 @@
+# Run Compass on a server (e.g. an NVIDIA DGX). See docs/DEPLOY_DGX.md.
+#
+#   cp .env.production.example .env.production   # then edit it
+#   docker compose up -d --build
+#   docker compose run --rm compass pnpm db:seed  # first time only
+
+services:
+  compass:
+    build: .
+    image: compass-planner:latest
+    container_name: compass
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      DATABASE_URL: file:/data/compass.db
+    ports:
+      # Change the left number to serve on another port, e.g. "8080:3000".
+      - "3000:3000"
+    volumes:
+      - compass-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  # The database lives here and survives rebuilds and restarts. Back it up (see the guide).
+  compass-data:

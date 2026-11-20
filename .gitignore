@@ -34,6 +34,8 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+# Server secrets (see .env.production.example)
+.env.production
 
 # sqlite (including the local Prisma dev database at prisma/dev.db)
 *.db
@@ -52,3 +54,6 @@ next-env.d.ts
 
 # Dependencies installed inside workspace packages
 node_modules/
+
+# Deployment bundle built for copying to a server
+/compass-deploy.tar.gz
