@@ -7,6 +7,7 @@ import { modeLabel, type EquipmentMode } from "@compass/domain"
 import { toast } from "sonner"
 import { setProjectEquipment } from "@/app/actions/projects"
 import type { CargoLine } from "@/components/cargo-grid"
+import { EquipmentSuggestions } from "@/components/equipment-suggestions"
 import { EquipmentViewer } from "@/components/equipment-viewer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,8 +58,9 @@ export const EquipmentSetup = forwardRef<
     canEdit: boolean
     projectMode: EquipmentMode
     cargo: CargoLine[]
+    objective: "FEWEST_UNITS" | "LOWEST_COST"
   }
->(function EquipmentSetup({ projectId, items, initial, canEdit, projectMode, cargo }, ref) {
+>(function EquipmentSetup({ projectId, items, initial, canEdit, projectMode, cargo, objective }, ref) {
   const router = useRouter()
   const [query, setQuery] = useState("")
   const [mode, setMode] = useState<EquipmentMode | "ALL">(projectMode)
@@ -105,6 +107,20 @@ export const EquipmentSetup = forwardRef<
     const byVolume = cargoTotals.volume / Math.max(innerM3(item) * USABLE_VOLUME, 0.001)
     const byWeight = item.maxPayloadKg > 0 ? cargoTotals.weight / item.maxPayloadKg : 0
     return Math.max(1, Math.ceil(Math.max(byVolume, byWeight)))
+  }
+
+  // Suggestions compare every type in the mode tab that is open, whatever is typed in the search box.
+  const suggestionCandidates = useMemo(() => (mode === "ALL" ? items : items.filter((item) => item.mode === mode)), [items, mode])
+
+  /** Replace the selection with a suggested type and count. Undo puts the previous picks back. */
+  function applySuggestion(equipmentTypeId: string, quantity: number) {
+    const previous = units
+    const item = items.find((entry) => entry.id === equipmentTypeId)
+    setUnits([{ equipmentTypeId, quantity: Math.min(MAX_QTY, Math.max(1, quantity)) }])
+    setFocusId(equipmentTypeId)
+    toast.success(`Selected ${quantity} × ${item?.name ?? "unit"}. Continue to save it.`, {
+      action: previous.length > 0 ? { label: "Undo", onClick: () => setUnits(previous) } : undefined,
+    })
   }
 
   function toggle(item: EquipmentListItem) {
@@ -165,6 +181,16 @@ export const EquipmentSetup = forwardRef<
   const weightPct = capacity.weight > 0 ? (cargoTotals.weight / capacity.weight) * 100 : 0
 
   return (
+    <div className="space-y-4">
+      <EquipmentSuggestions
+        cargo={cargo}
+        candidates={suggestionCandidates}
+        scopeLabel={mode === "ALL" ? "equipment" : modeLabel(mode)}
+        objective={objective}
+        canEdit={canEdit}
+        selected={units}
+        onUse={applySuggestion}
+      />
     <div className="relative grid gap-6 lg:grid-cols-[1fr_28rem]">
       <section className="rounded-md border bg-card" aria-label="Equipment library">
         <div className="flex flex-wrap items-center gap-2 border-b p-3">
@@ -352,6 +378,7 @@ export const EquipmentSetup = forwardRef<
           </section>
         ) : null}
       </aside>
+    </div>
     </div>
   )
 })
