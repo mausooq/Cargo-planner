@@ -160,6 +160,7 @@ export const PlanWorkspace = forwardRef<
         cargo.map((item) => ({
           id: item.id,
           name: item.name,
+          sku: item.sku,
           weightKg: item.weightKg,
           color: item.color,
           shape: item.shape,

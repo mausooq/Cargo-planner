@@ -34,6 +34,7 @@ type DbPlan = {
       rotation: string
       cargoItem: {
         name: string
+        sku?: string | null
         weightKg: number
         color: string | null
         shape: string
@@ -121,6 +122,7 @@ function unitFromInstance(instance: DbPlan["instances"][number], index: number):
       id: `${placement.cargoItemId}-${placement.instanceIndex}`,
       cargoId: placement.cargoItemId,
       name: placement.cargoItem.name,
+      sku: placement.cargoItem.sku ?? null,
       color: cargoColor(placement.cargoItem.name, placement.cargoItem.color),
       x: placement.xCm,
       y: placement.yCm,

@@ -7,6 +7,8 @@ export type PlanItemView = {
   id: string
   cargoId: string
   name: string
+  /** The cargo line's mark (SKU), when it has one. Printed on the piece in the 3D view. */
+  sku?: string | null
   color: string
   x: number
   y: number
@@ -75,6 +77,7 @@ export type SolverEquipmentHint = {
 export type SolverCargoHint = {
   id: string
   name: string
+  sku?: string | null
   weightKg: number
   color: string | null
   shape?: CargoShape
@@ -128,6 +131,7 @@ export function toPlanView(
             id: `${placement.cargoId}-${placement.instanceIndex}`,
             cargoId: placement.cargoId,
             name: item?.name ?? "Cargo",
+            sku: item?.sku ?? null,
             color: cargoColor(item?.name ?? "Cargo", item?.color ?? null),
             x: placement.x,
             y: placement.y,

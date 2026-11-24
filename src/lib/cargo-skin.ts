@@ -2,23 +2,30 @@ import { CanvasTexture, MeshBasicMaterial, MeshStandardMaterial, SRGBColorSpace,
 import { bodiesOverlap, validateDrop } from "@compass/physics"
 import { boxFitsContour, type SolverEquipment } from "@compass/solver"
 import { applyDropPosition, itemToPiece, unitToWorld } from "@/lib/cargo-physics"
+import { faceCanvasSize, layoutLabel, type MeasureText } from "@/lib/cargo-label"
 import type { PlanItemView, PlanUnitView } from "@/lib/plan-view"
-import { cargoLabelColor } from "@/lib/format"
 import { hasContourCuts, type UldContour } from "@/lib/uld-contour"
 
 const EPS = 0.05
 
+const LABEL_FONT = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif"
+const labelFont = (size: number, bold: boolean) => `${bold ? 800 : 600} ${size}px ${LABEL_FONT}`
+
+/**
+ * One face of a box: the cargo colour with a white label plate in the middle. The label is sized
+ * to fit the face (see layoutLabel), so long descriptions wrap and shrink instead of running off
+ * the edge, and the drawing surface has the face's own shape, so text is never stretched.
+ */
 export function makeFaceTexture(input: {
   color: string
-  label?: string
+  label?: { mark: string | null; text: string }
   hatch?: boolean
   aspect: number
 }): CanvasTexture | null {
   if (typeof document === "undefined") return null
-  // Kept small on purpose: a 256 px face is sharp at normal zoom, and big plans can show
-  // hundreds of faces at once (each one is uploaded to the graphics card).
-  const width = 256
-  const height = Math.min(512, Math.max(64, Math.round(256 / Math.max(input.aspect, 0.35))))
+  // Kept modest on purpose: big plans can show hundreds of faces at once, and each texture is
+  // uploaded to the graphics card. Identical pieces share one (see the material cache below).
+  const { width, height } = faceCanvasSize(input.aspect)
   const canvas = document.createElement("canvas")
   canvas.width = width
   canvas.height = height
@@ -29,9 +36,10 @@ export function makeFaceTexture(input: {
   ctx.fillRect(0, 0, width, height)
 
   if (input.hatch) {
-    ctx.strokeStyle = "rgba(255,255,255,0.55)"
-    ctx.lineWidth = 5
-    const step = 14
+    // A light hatch marks the top of a piece without fighting the label.
+    ctx.strokeStyle = "rgba(255,255,255,0.3)"
+    ctx.lineWidth = 3
+    const step = 18
     for (let x = -height; x < width + height; x += step) {
       ctx.beginPath()
       ctx.moveTo(x, 0)
@@ -40,57 +48,77 @@ export function makeFaceTexture(input: {
     }
   }
 
-  const label = input.label?.trim()
-  if (label) {
-    ctx.fillStyle = cargoLabelColor(input.color)
+  if (input.label?.text) {
+    // On a tall narrow face the label runs up the long side, like a label on a book spine.
+    const sideways = height > width * 1.5
+    const across = sideways ? height : width
+    const down = sideways ? width : height
+    const measure: MeasureText = (text, size, bold) => {
+      ctx.font = labelFont(size, bold)
+      return ctx.measureText(text).width
+    }
+    const layout = layoutLabel({
+      mark: input.label.mark,
+      text: input.label.text,
+      maxWidth: across * 0.8,
+      maxHeight: down * 0.68,
+      maxFontSize: Math.min(46, down * 0.26),
+      minFontSize: 12,
+      measure,
+    })
+    const padX = layout.fontSize * 0.55
+    const padY = layout.fontSize * 0.4
+    const plateWidth = Math.min(across * 0.94, layout.width + padX * 2)
+    const plateHeight = Math.min(down * 0.92, layout.height + padY * 2)
+
+    ctx.save()
+    ctx.translate(width / 2, height / 2)
+    if (sideways) ctx.rotate(-Math.PI / 2)
+    ctx.beginPath()
+    ctx.roundRect(-plateWidth / 2, -plateHeight / 2, plateWidth, plateHeight, Math.min(10, plateHeight / 4))
+    ctx.fillStyle = "rgba(255,255,255,0.95)"
+    ctx.fill()
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = "rgba(17,24,39,0.35)"
+    ctx.stroke()
+
+    ctx.fillStyle = "#111827"
     ctx.textAlign = "center"
     ctx.textBaseline = "middle"
-    const lines = wrapLabel(ctx, label.toUpperCase(), width * 0.86, height * 0.8)
-    const size = Math.min(32, Math.round(height / (lines.length + 1.2)))
-    ctx.font = `700 ${size}px ui-sans-serif, system-ui, sans-serif`
-    const start = height / 2 - ((lines.length - 1) * size * 0.6) / 2
-    for (const [index, line] of lines.entries()) {
-      ctx.fillText(line, width / 2, start + index * size * 0.7)
+    const firstLine = -layout.height / 2 + layout.lineHeight / 2
+    for (const [index, line] of layout.lines.entries()) {
+      ctx.font = labelFont(layout.fontSize, line.bold)
+      ctx.fillText(line.text, 0, firstLine + index * layout.lineHeight)
     }
+    ctx.restore()
   }
 
   const texture = new CanvasTexture(canvas)
   texture.colorSpace = SRGBColorSpace
-  texture.anisotropy = 4
+  // Keeps the label readable on faces seen at a slant.
+  texture.anisotropy = 8
   texture.needsUpdate = true
   return texture
 }
 
-function wrapLabel(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxHeight: number): string[] {
-  const words = text.split(/\s+/).filter(Boolean)
-  if (words.length === 0) return []
-  ctx.font = "700 24px ui-sans-serif, system-ui, sans-serif"
-  const lines: string[] = []
-  let current = words[0] as string
-  for (const word of words.slice(1)) {
-    const trial = `${current} ${word}`
-    if (ctx.measureText(trial).width <= maxWidth) current = trial
-    else {
-      lines.push(current)
-      current = word
-    }
-  }
-  lines.push(current)
-  const maxLines = Math.max(1, Math.floor(maxHeight / 18))
-  return lines.slice(0, maxLines)
-}
-
-export function cargoBoxMaterials(color: string, label: string, length: number, width: number, height: number) {
-  const ink = label.trim() || "Cargo"
-  const side = (aspect: number, hatch = false, withLabel = true) => {
-    const map = makeFaceTexture({ color, label: withLabel ? ink : undefined, hatch, aspect }) ?? undefined
+export function cargoBoxMaterials(
+  color: string,
+  label: string,
+  length: number,
+  width: number,
+  height: number,
+  mark: string | null = null,
+) {
+  const ink = { mark: mark?.trim() || null, text: label.trim() || "Cargo" }
+  const side = (aspect: number, hatch = false) => {
+    const map = makeFaceTexture({ color, label: ink, hatch, aspect }) ?? undefined
     return new MeshBasicMaterial({ map, color: map ? "#ffffff" : color, toneMapped: false })
   }
 
-  const top = side(Math.max(length / Math.max(width, 0.01), 0.4), true, true)
+  const top = side(length / Math.max(width, 0.01), true)
   const bottom = new MeshBasicMaterial({ color, toneMapped: false })
-  const alongWidth = side(Math.max(length / Math.max(height, 0.01), 0.4))
-  const alongLength = side(Math.max(width / Math.max(height, 0.01), 0.4))
+  const alongWidth = side(length / Math.max(height, 0.01))
+  const alongLength = side(width / Math.max(height, 0.01))
   return [alongLength, alongLength, top, bottom, alongWidth, alongWidth]
 }
 
@@ -128,6 +156,8 @@ const materialCache = new Map<string, CacheEntry>()
 export type CargoMaterialSpec = {
   color: string
   label: string
+  /** The piece's mark (SKU), printed on its own line above the label when given. */
+  mark?: string | null
   length: number
   width: number
   height: number
@@ -140,7 +170,7 @@ export function cargoMaterialKey(spec: CargoMaterialSpec): string {
   const size = (value: number) => Math.round(value * 20) / 20
   if (spec.round) return `round|${spec.color}`
   if (spec.simple) return `flat|${spec.color}`
-  return ["box", spec.color, spec.label.trim().toUpperCase(), size(spec.length), size(spec.width), size(spec.height)].join("|")
+  return ["box", spec.color, spec.mark?.trim() ?? "", spec.label.trim(), size(spec.length), size(spec.width), size(spec.height)].join("|")
 }
 
 export function getCargoMaterials(spec: CargoMaterialSpec): { key: string; materials: Material[] } {
@@ -151,7 +181,7 @@ export function getCargoMaterials(spec: CargoMaterialSpec): { key: string; mater
       ? cargoRoundMaterials(spec.color)
       : spec.simple
         ? Array.from({ length: 6 }, () => flatFace(spec.color))
-        : cargoBoxMaterials(spec.color, spec.label, spec.length, spec.width, spec.height)
+        : cargoBoxMaterials(spec.color, spec.label, spec.length, spec.width, spec.height, spec.mark ?? null)
     entry = { materials, refs: 0, disposeTimer: null }
     materialCache.set(key, entry)
   }

@@ -16,6 +16,7 @@ import { AirContourMesh, AirPalletMesh } from "@/components/equipment-hull"
 import { applyDropPosition, itemToPiece, pointerInFootprint, unitToWorld } from "@/lib/cargo-physics"
 import { snapToNeighbours, snapToStack } from "@/lib/cargo-snap"
 import { fallDurationMs, fallHeight, prefersReducedMotion } from "@/lib/fall-motion"
+import { cargoLabelParts } from "@/lib/cargo-label"
 import { fitsContour, getCargoMaterials, retainCargoMaterials } from "@/lib/cargo-skin"
 import { ghostColors, physicsFromSettings, useEditorSettings } from "@/lib/editor-settings"
 import { visualKind } from "@/lib/equipment-shape"
@@ -417,19 +418,23 @@ function CargoPiece({
   const setOrbit = useOrbitLock()
   const settings = useEditorSettings()
 
+  // What is printed on the piece: its mark on its own line (unless the name already shows it), then the name.
+  const label = useMemo(() => cargoLabelParts(item.sku, item.name), [item.sku, item.name])
+
   // Shared across identical pieces and viewers (see getCargoMaterials). Small views use flat colour.
   const { key: materialKey, materials } = useMemo(
     () =>
       getCargoMaterials({
         color: selected ? SELECTED_COLOR : item.color,
-        label: item.name,
+        label: label.text,
+        mark: label.mark,
         length,
         width,
         height,
         round: drum || pipe,
         simple,
       }),
-    [drum, pipe, item.color, item.name, length, width, height, selected, simple],
+    [drum, pipe, item.color, label.text, label.mark, length, width, height, selected, simple],
   )
 
   useEffect(() => retainCargoMaterials(materialKey), [materialKey])

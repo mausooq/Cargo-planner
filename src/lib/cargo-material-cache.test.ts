@@ -27,8 +27,15 @@ describe("cargo material cache", () => {
     expect(cargoMaterialKey(box)).not.toBe(cargoMaterialKey({ ...box, height: 1 }))
   })
 
-  it("ignores label case and tiny size noise", () => {
-    expect(cargoMaterialKey(box)).toBe(cargoMaterialKey({ ...box, label: " LIPSTICKS ", length: 0.501 }))
+  it("ignores stray spaces and tiny size noise", () => {
+    expect(cargoMaterialKey(box)).toBe(cargoMaterialKey({ ...box, label: " Lipsticks ", length: 0.501 }))
+  })
+
+  it("keeps labels apart that print differently: other case, or another mark", () => {
+    // The label is printed as typed, so "Lipsticks" and "LIPSTICKS" are different pictures.
+    expect(cargoMaterialKey(box)).not.toBe(cargoMaterialKey({ ...box, label: "LIPSTICKS" }))
+    expect(cargoMaterialKey({ ...box, mark: "S-1" })).not.toBe(cargoMaterialKey({ ...box, mark: "S-2" }))
+    expect(cargoMaterialKey(box)).toBe(cargoMaterialKey({ ...box, mark: null }))
   })
 
   it("frees an entry only after the last holder lets go", () => {
