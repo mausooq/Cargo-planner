@@ -57,3 +57,6 @@ node_modules/
 
 # Deployment bundle built for copying to a server
 /compass-deploy.tar.gz
+
+# Client documents and test output (packing lists, renders, exports). Never publish these.
+/client-tests/

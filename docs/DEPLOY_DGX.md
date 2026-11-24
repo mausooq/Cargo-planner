@@ -149,19 +149,73 @@ Schedule the backup daily with `crontab -e`, for example:
 
 ---
 
-## Optional: a proper address with HTTPS
+## Use a domain name
 
-For a name like `https://compass.yourcompany.com`, put a reverse proxy in front (your IT team may
-already run one). With Caddy on the DGX, for example:
+A name such as `compass.yourcompany.com` needs two things: the name must point at the DGX (your IT
+team does this), and the DGX must answer on the normal web ports (the built-in proxy does this).
 
+### 1. Ask IT for the name
+
+Send them the DGX address (`hostname -I`) and ask for one of:
+
+- **Inside the company only (usual choice):** "Please add an internal DNS record
+  `compass.yourcompany.com` pointing to `<DGX address>`." Everyone on the office network or VPN can
+  then use it. Nothing is exposed to the internet.
+- **From the public internet:** this also needs a public IP or port forwarding for ports 80 and 443
+  to the DGX, and a security review. Do not do this without IT: it puts the DGX on the internet.
+
+### 2. Turn on the proxy
+
+Add the address to `.env.production` (pick one line):
+
+| You have | Line to add |
+| --- | --- |
+| An internal name, plain HTTP | `COMPASS_SITE_ADDRESS="http://compass.yourcompany.com"` |
+| A public name, automatic HTTPS | `COMPASS_SITE_ADDRESS="compass.yourcompany.com"` |
+| No name yet, just drop the `:3000` | `COMPASS_SITE_ADDRESS=":80"` |
+
+Start it:
+
+```bash
+docker compose --profile domain up -d
 ```
-compass.yourcompany.com {
-  reverse_proxy 127.0.0.1:3000
-}
+
+People now open `http://compass.yourcompany.com` (no port). Keep using `--profile domain` on later
+`up` commands, e.g. `git pull && docker compose --profile domain up -d --build`.
+
+Notes:
+
+- **HTTPS inside the company.** Automatic certificates only work for names reachable from the
+  internet. For HTTPS on an internal-only name, ask IT for a certificate for that name (or to put
+  Compass behind the company's existing HTTPS proxy, pointing at `http://<DGX address>:3000`).
+- **"port is already allocated" for 80 or 443** means another web server already runs on the DGX.
+  Ask IT to add Compass to that server instead (proxy the name to `127.0.0.1:3000`).
+- Once everyone uses one HTTPS address, set `AUTH_URL="https://compass.yourcompany.com"` in
+  `.env.production` and run the `up` command again.
+- To close direct access on port 3000 afterwards, change `"3000:3000"` to `"127.0.0.1:3000:3000"`
+  in `docker-compose.yml`.
+
+## Reading packing lists from a photo or PDF (optional)
+
+On the Cargo step, planners can drop a photo, screenshot, or PDF of a packing list and Compass fills
+in the lines. The file is sent to Claude (Anthropic) to be read, so this needs:
+
+1. An API key in `.env.production`: `ANTHROPIC_API_KEY="sk-ant-..."`. Keep it out of git and chat.
+2. Internet access from the DGX to `api.anthropic.com` (port 443).
+
+Then restart: `docker compose up -d`. Without a key the feature says it is not set up; Excel and CSV
+import work as before.
+
+Reading takes 10 to 30 seconds. If nginx sits in front of Compass, give it room for that and for
+uploads in the `server { ... }` block, then `sudo nginx -t && sudo systemctl reload nginx`:
+
+```nginx
+client_max_body_size 20m;
+proxy_read_timeout 180s;
 ```
 
-Then set `AUTH_URL="https://compass.yourcompany.com"` in `.env.production` and run
-`docker compose up -d` again.
+Each read costs a few cents on the key's account. Company documents leave the DGX for this step, so
+check that is acceptable before turning it on.
 
 ## Offline DGX
 

@@ -1,0 +1,13 @@
+# Web front door for Compass. Used only when the "domain" profile is on:
+#
+#   docker compose --profile domain up -d
+#
+# COMPASS_SITE_ADDRESS comes from .env.production. Examples:
+#   :80                               any name or IP, plain HTTP, no ":3000" needed
+#   http://compass.yourcompany.local  one internal name, plain HTTP
+#   compass.yourcompany.com           public name: HTTPS with an automatic certificate
+#                                     (needs public DNS and ports 80 and 443 open from the internet)
+{$COMPASS_SITE_ADDRESS::80} {
+	encode gzip
+	reverse_proxy compass:3000
+}

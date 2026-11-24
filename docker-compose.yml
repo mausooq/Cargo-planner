@@ -25,6 +25,28 @@ services:
       retries: 3
       start_period: 30s
 
+  # Optional front door so people use a name (and no ":3000"). Off unless you ask for it:
+  #   docker compose --profile domain up -d
+  # Set COMPASS_SITE_ADDRESS in .env.production first. See "Use a domain name" in docs/DEPLOY_DGX.md.
+  proxy:
+    image: caddy:2
+    container_name: compass-proxy
+    profiles: ["domain"]
+    restart: unless-stopped
+    env_file: .env.production
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - compass
+
 volumes:
   # The database lives here and survives rebuilds and restarts. Back it up (see the guide).
   compass-data:
+  # HTTPS certificates issued for the domain proxy.
+  caddy-data:
+  caddy-config:
