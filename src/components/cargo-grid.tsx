@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react"
 import { cargoItemInputSchema, type AxisRotation, type CargoItemInput, type CargoShape } from "@compass/domain"
-import { AlertCircle, Check, Copy, Download, FileUp, Loader2, Plus, Trash2 } from "lucide-react"
+import { AlertCircle, Check, Copy, Download, FileDown, FileUp, Loader2, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import {
   addCargoItem,
@@ -22,6 +22,7 @@ import { openCargoFilePicker } from "@/components/cargo-import-wizard"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { downloadCargoWorkbook } from "@/lib/cargo-export"
 import {
   fromDisplayLength,
   LENGTH_UNIT_LABEL,
@@ -92,13 +93,16 @@ const EMPTY_BULK: BulkPatch = { priority: "", stop: "", shape: "", stackable: ""
 
 export function CargoGrid({
   projectId,
+  projectName,
   lines,
   canEdit,
 }: {
   projectId: string
+  projectName: string
   lines: CargoLine[]
   canEdit: boolean
 }) {
+  const [exporting, setExporting] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
   const [bulk, setBulk] = useState<BulkPatch>(EMPTY_BULK)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -150,6 +154,17 @@ export function CargoGrid({
     const result = await trackSave(addCargoItem(projectId))
     if (!result.ok) focusNewRow.current = null
     setAdding(false)
+  }
+
+  async function exportExcel() {
+    setExporting(true)
+    try {
+      await downloadCargoWorkbook(lines.map(toCargoInput), projectName)
+    } catch {
+      toast.error("Could not build the Excel file.")
+    } finally {
+      setExporting(false)
+    }
   }
 
   async function applyBulk() {
@@ -236,20 +251,37 @@ export function CargoGrid({
               <Plus className="size-4" />
               {adding ? "Adding…" : "Add line"}
             </Button>
-            <Button type="button" variant="outline" onClick={openCargoFilePicker}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={openCargoFilePicker}
+              title="A photo, screenshot or PDF of the packing list is read for you. Excel and CSV also work. You can also drop the file anywhere on this page."
+            >
               <FileUp className="size-4" />
-              Import from Excel
-            </Button>
-            <Button asChild variant="link" className="px-1">
-              <a href="/api/cargo-template" download title="An empty Excel sheet with the right columns to fill in">
-                <Download className="size-4" />
-                Template
-              </a>
+              Import packing list
             </Button>
           </>
         ) : (
           <p className="text-sm text-muted-foreground">View only. Planners and admins can edit cargo.</p>
         )}
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void exportExcel()}
+          disabled={exporting || lines.length === 0}
+          title={lines.length === 0 ? "Add cargo first" : "Download this cargo list as an Excel file"}
+        >
+          {exporting ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
+          Export to Excel
+        </Button>
+        {canEdit ? (
+          <Button asChild variant="link" className="px-1">
+            <a href="/api/cargo-template" download title="An empty Excel sheet with the right columns to fill in">
+              <Download className="size-4" />
+              Template
+            </a>
+          </Button>
+        ) : null}
         <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
           <span aria-live="polite">{saveLabel}</span>
           <label className="flex items-center gap-2">
@@ -365,7 +397,7 @@ export function CargoGrid({
           <p className="text-sm font-medium">No cargo yet</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
             {canEdit
-              ? "Add lines one by one, or import a whole packing list from Excel or CSV. Each line is one item type with its size, weight, and quantity."
+              ? "Drop a packing list anywhere on this page: a photo, screenshot or PDF is read for you, and Excel or CSV files are imported by column. You can also paste a screenshot, or add lines one by one."
               : "A planner has not added cargo to this project yet."}
           </p>
           {canEdit ? (
@@ -376,7 +408,7 @@ export function CargoGrid({
               </Button>
               <Button type="button" variant="outline" onClick={openCargoFilePicker}>
                 <FileUp className="size-4" />
-                Import from Excel
+                Import packing list
               </Button>
             </div>
           ) : null}

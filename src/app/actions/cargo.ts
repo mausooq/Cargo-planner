@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { readTabularFile } from "@/lib/cargo-file"
 import { cargoPreset } from "@/lib/cargo-defaults"
+import { documentKind, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES, type ExtractedCargo } from "@/lib/cargo-extract"
+import { readCargoDocument } from "@/lib/cargo-extract-server"
 import { importMappingSchema, MAX_IMPORT_ROWS, type TabularSheet } from "@/lib/cargo-import"
 import { editorOrError } from "@/lib/editor"
 import { prisma } from "@/lib/prisma"
@@ -139,6 +141,33 @@ export async function previewCargoFile(formData: FormData): Promise<{ sheet: Tab
     const message = error instanceof Error ? error.message : "The file could not be read."
     return { error: message }
   }
+}
+
+/** Reads a photo or PDF of a packing list with Claude and returns cargo lines for the planner to review. */
+export async function extractCargoFromDocument(
+  formData: FormData,
+): Promise<{ cargo: ExtractedCargo } | { error: string }> {
+  const access = await editorOrError()
+  if (!access.ok) return { error: access.error }
+
+  const file = formData.get("file")
+  if (!(file instanceof File)) return { error: "Choose a photo or PDF of the packing list." }
+  const document = documentKind(file.name, file.type)
+  if (!document) return { error: "Use a PDF, JPG, PNG or WebP file. For spreadsheets, use an .xlsx or .csv file." }
+  if (file.size === 0) return { error: "That file is empty." }
+  if (file.size > MAX_DOCUMENT_BYTES) return { error: "That file is over 10 MB. Use a smaller scan or fewer pages." }
+  if (document.kind === "image" && file.size > MAX_IMAGE_BYTES) {
+    return { error: "That image is over 5 MB. Save it smaller, or take a screenshot of the list instead." }
+  }
+
+  const rawMode = formData.get("mode")
+  const mode = typeof rawMode === "string" && rawMode ? rawMode.toLowerCase() : "sea"
+  const result = await readCargoDocument({
+    bytes: new Uint8Array(await file.arrayBuffer()),
+    document,
+    modeLabel: ["sea", "air", "road", "pallet"].includes(mode) ? mode : "sea",
+  })
+  return result.ok ? { cargo: result.cargo } : { error: result.error }
 }
 
 export async function importCargoRows(projectId: string, rows: CargoItemInput[]) {

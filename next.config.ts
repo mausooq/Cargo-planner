@@ -14,6 +14,12 @@ const devOrigins = ["10.1.12.204", ...(process.env.DEV_ORIGINS ?? "").split(",")
 const nextConfig: NextConfig = {
   transpilePackages: ["@compass/domain", "@compass/physics", "@compass/solver"],
   allowedDevOrigins: [...new Set(devOrigins)],
+  experimental: {
+    serverActions: {
+      // Packing-list photos and PDFs are uploaded through a Server Action (default limit is 1 MB).
+      bodySizeLimit: "12mb",
+    },
+  },
 }
 
 export default nextConfig

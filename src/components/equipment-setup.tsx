@@ -59,8 +59,14 @@ export const EquipmentSetup = forwardRef<
     projectMode: EquipmentMode
     cargo: CargoLine[]
     objective: "FEWEST_UNITS" | "LOWEST_COST"
+    /** Point the planner at the best-fit check as the step opens (used after importing a packing list). */
+    autoSuggest?: boolean
+    onAutoSuggestStarted?: () => void
   }
->(function EquipmentSetup({ projectId, items, initial, canEdit, projectMode, cargo, objective }, ref) {
+>(function EquipmentSetup(
+  { projectId, items, initial, canEdit, projectMode, cargo, objective, autoSuggest = false, onAutoSuggestStarted },
+  ref,
+) {
   const router = useRouter()
   const [query, setQuery] = useState("")
   const [mode, setMode] = useState<EquipmentMode | "ALL">(projectMode)
@@ -109,8 +115,8 @@ export const EquipmentSetup = forwardRef<
     return Math.max(1, Math.ceil(Math.max(byVolume, byWeight)))
   }
 
-  // Suggestions compare every type in the mode tab that is open, whatever is typed in the search box.
-  const suggestionCandidates = useMemo(() => (mode === "ALL" ? items : items.filter((item) => item.mode === mode)), [items, mode])
+  // How the shipment travels, for the best-fit check. Nothing is compared until the planner picks one.
+  const [suggestMode, setSuggestMode] = useState<EquipmentMode | null>(null)
 
   /** Replace the selection with a suggested type and count. Undo puts the previous picks back. */
   function applySuggestion(equipmentTypeId: string, quantity: number) {
@@ -184,12 +190,19 @@ export const EquipmentSetup = forwardRef<
     <div className="space-y-4">
       <EquipmentSuggestions
         cargo={cargo}
-        candidates={suggestionCandidates}
-        scopeLabel={mode === "ALL" ? "equipment" : modeLabel(mode)}
+        items={items}
+        mode={suggestMode}
+        onModeChange={(next) => {
+          setSuggestMode(next)
+          // Show the same mode in the library below, so the list matches what is being compared.
+          setMode(next)
+          onAutoSuggestStarted?.()
+        }}
         objective={objective}
         canEdit={canEdit}
         selected={units}
         onUse={applySuggestion}
+        highlight={autoSuggest}
       />
     <div className="relative grid gap-6 lg:grid-cols-[1fr_28rem]">
       <section className="rounded-md border bg-card" aria-label="Equipment library">

@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Check, Sparkles } from "lucide-react"
+import type { EquipmentMode } from "@compass/domain"
+import { Check, Plane, RefreshCw, Ship, Sparkles, Truck, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import type { CargoLine } from "@/components/cargo-grid"
 import { Button } from "@/components/ui/button"
@@ -13,42 +14,64 @@ import { cn } from "@/lib/utils"
 
 const SHOWN = 5
 
+/** How the shipment can travel. The planner picks one before any equipment is compared. */
+export const TRANSPORT_CHOICES: { mode: EquipmentMode; label: string; icon: LucideIcon }[] = [
+  { mode: "SEA", label: "Sea", icon: Ship },
+  { mode: "AIR", label: "Air", icon: Plane },
+  { mode: "ROAD", label: "Land", icon: Truck },
+]
+
+function signatureOf(objective: Objective, candidates: EquipmentListItem[], cargo: CargoLine[]): string {
+  return JSON.stringify([
+    objective,
+    candidates.map((item) => item.id),
+    cargo.map((line) => [line.id, line.lengthCm, line.widthCm, line.heightCm, line.weightKg, line.quantity, line.stackable, line.orientation]),
+  ])
+}
+
 /**
- * "Which equipment is best for my cargo?" Runs a quick packing trial of the cargo against every
- * candidate type and lists the best fits, each with a one-click "Use this".
+ * "Which equipment is best for my cargo?" The planner first says how the shipment travels (sea,
+ * air or land). Compass then runs a quick packing trial of the cargo against every equipment type
+ * for that mode and lists the best fits, each with a one-click "Use this".
  */
 export function EquipmentSuggestions({
   cargo,
-  candidates,
-  scopeLabel,
+  items,
+  mode,
+  onModeChange,
   objective,
   canEdit,
   selected,
   onUse,
+  highlight = false,
 }: {
   cargo: CargoLine[]
-  candidates: EquipmentListItem[]
-  /** What is being compared, e.g. "Sea" or "all". Shown in the button and summary. */
-  scopeLabel: string
+  /** The whole equipment library; the chosen transport mode decides which types are compared. */
+  items: EquipmentListItem[]
+  /** The transport mode picked for the comparison, or null while the planner has not chosen yet. */
+  mode: EquipmentMode | null
+  onModeChange: (mode: EquipmentMode) => void
   objective: Objective
   canEdit: boolean
   selected: { equipmentTypeId: string; quantity: number }[]
   onUse: (equipmentTypeId: string, units: number) => void
+  /** Draw attention to the transport choice (used right after a packing list was imported). */
+  highlight?: boolean
 }) {
   const [progress, setProgress] = useState<SuggestProgress | null>(null)
   const [results, setResults] = useState<{ signature: string; ranked: EquipmentSuggestion[]; checked: number } | null>(null)
   const cancelled = useRef(false)
 
+  const candidates = useMemo(() => (mode ? items.filter((item) => item.mode === mode) : []), [items, mode])
+  const counts = useMemo(() => {
+    const byMode = new Map<EquipmentMode, number>()
+    for (const item of items) byMode.set(item.mode, (byMode.get(item.mode) ?? 0) + 1)
+    return byMode
+  }, [items])
+  const chosen = TRANSPORT_CHOICES.find((choice) => choice.mode === mode) ?? null
+
   // The results only describe one exact cargo list and set of types; anything else makes them stale.
-  const signature = useMemo(
-    () =>
-      JSON.stringify([
-        objective,
-        candidates.map((item) => item.id),
-        cargo.map((line) => [line.id, line.lengthCm, line.widthCm, line.heightCm, line.weightKg, line.quantity, line.stackable, line.orientation]),
-      ]),
-    [cargo, candidates, objective],
-  )
+  const signature = useMemo(() => signatureOf(objective, candidates, cargo), [cargo, candidates, objective])
   const current = results && results.signature === signature ? results : null
   const stale = Boolean(results) && !current
 
@@ -59,17 +82,20 @@ export function EquipmentSuggestions({
     }
   }, [])
 
-  async function run() {
+  /** Picks the transport mode and compares its equipment types straight away. */
+  async function run(target: EquipmentMode) {
     if (cargo.length === 0) {
       toast.error("Add cargo first, then I can find the best equipment for it.")
       return
     }
+    onModeChange(target)
+    const list = items.filter((item) => item.mode === target)
     cancelled.current = false
-    setProgress({ done: 0, total: candidates.length, current: "" })
+    setProgress({ done: 0, total: list.length, current: "" })
     try {
       const ranked = await suggestEquipment({
         cargo,
-        candidates,
+        candidates: list,
         objective,
         run: (input) => runSolver(input),
         onProgress: (next) => {
@@ -78,7 +104,7 @@ export function EquipmentSuggestions({
         isCancelled: () => cancelled.current,
       })
       if (cancelled.current) return
-      setResults({ signature, ranked, checked: candidates.length })
+      setResults({ signature: signatureOf(objective, list, cargo), ranked, checked: list.length })
     } catch {
       toast.error("Could not compare the equipment. Try again.")
     } finally {
@@ -89,17 +115,23 @@ export function EquipmentSuggestions({
   const running = progress !== null
   const complete = current?.ranked.filter((entry) => entry.unloadedPieces === 0) ?? []
   const shown = current ? (complete.length > 0 ? complete : current.ranked).slice(0, SHOWN) : []
+  const askForMode = !chosen && !running
 
   return (
-    <section className="rounded-md border bg-card p-4" aria-label="Equipment suggestions">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section
+      className={cn("rounded-md border bg-card p-4", highlight && askForMode && "border-primary ring-2 ring-primary/25")}
+      aria-label="Equipment suggestions"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
             <Sparkles className="size-4 text-primary" aria-hidden="true" />
-            Not sure which equipment to pick?
+            {highlight && askForMode ? "Your cargo is in. How will it travel?" : "Not sure which equipment to pick?"}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Compass test-packs your cargo into each of the {candidates.length} {scopeLabel} types and shows the best fits
+            {chosen
+              ? `Compass test-packs your cargo into each of the ${candidates.length} ${chosen.label} types and shows the best fits`
+              : "Choose Sea, Air or Land. Compass then test-packs your cargo into every equipment type for it and shows the best fits"}
             {objective === "LOWEST_COST" ? " (lowest total cost first)" : " (standard types first, then fewest units, lowest cost, and the fullest load)"}.
           </p>
         </div>
@@ -114,12 +146,35 @@ export function EquipmentSuggestions({
           >
             Stop
           </Button>
-        ) : (
-          <Button type="button" variant={current ? "outline" : "default"} onClick={() => void run()} disabled={candidates.length === 0}>
-            <Sparkles className="size-4" />
-            {current || stale ? "Check again" : "Find the best fit"}
+        ) : chosen && (current || stale) ? (
+          <Button type="button" variant="outline" onClick={() => void run(chosen.mode)}>
+            <RefreshCw className="size-4" />
+            Check again
           </Button>
-        )}
+        ) : null}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="How the shipment travels">
+        <span className="text-sm font-medium">Find the best fit by</span>
+        {TRANSPORT_CHOICES.map((choice) => {
+          const count = counts.get(choice.mode) ?? 0
+          const active = choice.mode === mode
+          const Icon = choice.icon
+          return (
+            <Button
+              key={choice.mode}
+              type="button"
+              variant={active ? "default" : "outline"}
+              aria-pressed={active}
+              disabled={running || count === 0}
+              title={count === 0 ? `No ${choice.label} equipment in the library` : `Compare the ${count} ${choice.label} equipment types`}
+              onClick={() => void run(choice.mode)}
+            >
+              <Icon className="size-4" />
+              {choice.label}
+            </Button>
+          )
+        })}
       </div>
 
       {running && progress ? (

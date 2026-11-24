@@ -16,6 +16,7 @@
     "user:set": "tsx scripts/user.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.13.0",
     "@compass/domain": "workspace:*",
     "@compass/physics": "workspace:*",
     "@compass/solver": "workspace:*",

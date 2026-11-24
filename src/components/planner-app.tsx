@@ -58,6 +58,8 @@ export function PlannerApp({
   const [busy, setBusy] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [pendingStep, setPendingStep] = useState<PlannerStep | "dashboard" | null>(null)
+  // Set after a packing list is imported with "suggest equipment": the Equipment step then asks how the cargo travels.
+  const [autoSuggest, setAutoSuggest] = useState(false)
   // Local mirrors so step badges update the moment the user acts, before the server refresh lands.
   const [equipmentPicked, setEquipmentPicked] = useState(choices.length > 0)
   const [planReady, setPlanReady] = useState(Boolean(plan && plan.units.length > 0))
@@ -304,8 +306,20 @@ export function PlannerApp({
           <div key={step === "plan" ? "workspace" : step} className="motion-enter">
           {step === "data" ? (
             <div className="space-y-6">
-              <CargoGrid projectId={project.id} lines={cargo} canEdit={canEdit} />
-              {canEdit ? <CargoImportWizard projectId={project.id} templates={templates} /> : null}
+              <CargoGrid projectId={project.id} projectName={project.name} lines={cargo} canEdit={canEdit} />
+              {canEdit ? (
+                <CargoImportWizard
+                  projectId={project.id}
+                  projectMode={project.mode}
+                  templates={templates}
+                  onImported={({ suggest }) => {
+                    if (!suggest) return
+                    // The new lines were just saved, so open Equipment directly; it asks for Sea, Air or Land and then finds the best fit.
+                    setAutoSuggest(true)
+                    go("setup")
+                  }}
+                />
+              ) : null}
             </div>
           ) : null}
 
@@ -319,6 +333,8 @@ export function PlannerApp({
               projectMode={project.mode}
               cargo={readyLines}
               objective={project.objective}
+              autoSuggest={autoSuggest}
+              onAutoSuggestStarted={() => setAutoSuggest(false)}
             />
           ) : null}
 
