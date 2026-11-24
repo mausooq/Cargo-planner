@@ -8,6 +8,7 @@ export async function requireUser() {
 }
 
 export function safeNextPath(value: string | undefined): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/equipment"
+  // After sign-in people land on their projects unless they were sent to a specific page.
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/dashboard"
   return value
 }
