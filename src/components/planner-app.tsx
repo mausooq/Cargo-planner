@@ -326,6 +326,7 @@ export function PlannerApp({
                   projectId={project.id}
                   projectMode={project.mode}
                   templates={templates}
+                  existing={cargo}
                   onImported={({ suggest }) => {
                     if (!suggest) return
                     // The new lines were just saved, so open Equipment directly; it asks for Sea, Air or Land and then finds the best fit.

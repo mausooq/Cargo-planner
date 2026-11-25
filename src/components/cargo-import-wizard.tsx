@@ -1,17 +1,25 @@
 "use client"
 
-import { LENGTH_UNIT_LABEL } from "@/lib/cargo-units"
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import type { EquipmentMode } from "@compass/domain"
-import { AlertTriangle, FileUp, Loader2, Sparkles } from "lucide-react"
+import { AlertTriangle, Check, ClipboardPaste, FileText, FileUp, Image as ImageIcon, Loader2, Sparkles, X } from "lucide-react"
 import { toast } from "sonner"
-import { extractCargoFromDocument, importCargoRows, previewCargoFile, saveImportTemplate } from "@/app/actions/cargo"
+import {
+  extractCargoFromDocument,
+  extractCargoFromSheet,
+  extractCargoFromText,
+  getImportCapabilities,
+  importReviewedCargo,
+  readSpreadsheetFile,
+  saveImportTemplate,
+} from "@/app/actions/cargo"
+import { CargoImportReview, type ImportChoice, type SourceView } from "@/components/cargo-import-review"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { documentKind, isSpreadsheetFile, MAX_DOCUMENT_BYTES, type ExtractedCargo } from "@/lib/cargo-extract"
+import { documentKind, isSpreadsheetFile, MAX_DOCUMENT_BYTES, MAX_PASTE_CHARS, type ReviewDocument } from "@/lib/cargo-extract"
 import {
-  buildImportPreview,
   CARGO_IMPORT_FIELDS,
   LENGTH_UNITS,
   missingRequiredFields,
@@ -21,10 +29,12 @@ import {
   type CargoImportField,
   type ImportMapping,
   type LengthUnit,
-  type TabularSheet,
   type WeightUnit,
 } from "@/lib/cargo-import"
-import { formatKg, formatM3 } from "@/lib/format"
+import { LENGTH_UNIT_LABEL } from "@/lib/cargo-units"
+import { evaluateLine, type ExistingCargoSummary, type ReviewLine } from "@/lib/import-review"
+import type { SheetInfo, SheetTable, WorkbookInfo } from "@/lib/import-sheet"
+import { tableToReviewLines } from "@/lib/import-table"
 import { shrinkImage } from "@/lib/shrink-image"
 import { cn } from "@/lib/utils"
 
@@ -35,12 +45,14 @@ export type SavedMapping = {
 }
 
 const FIELD_LABEL: Record<CargoImportField, string> = {
-  sku: "SKU",
-  name: "Name",
+  sku: "SKU / mark",
+  name: "Description",
   length: "Length",
   width: "Width",
   height: "Height",
-  weight: "Weight",
+  dimensions: "Size in one cell (L x W x H)",
+  weight: "Weight per piece",
+  lineWeight: "Line total weight",
   quantity: "Quantity",
   shape: "Shape",
   orientation: "Orientation",
@@ -56,131 +68,154 @@ const FIELD_LABEL: Record<CargoImportField, string> = {
   color: "Color",
 }
 
-const UNSUPPORTED_FILE = "Use a photo or PDF of the packing list, or an Excel (.xlsx) or CSV file."
+const ACCEPT =
+  ".xlsx,.csv,.pdf,.jpg,.jpeg,.png,.webp,.gif,image/*,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+const OPEN_EVENT = "compass:open-import"
+const UNSUPPORTED_FILE = "Use an Excel (.xlsx) or CSV file, a PDF, or a JPG, PNG or WebP image."
+
+type Tab = "file" | "image" | "text"
+type Stage = "choose" | "mapping" | "review"
+type Picked = { file: File; url: string | null; kind: "sheet" | "pdf" | "image" }
+
+/** Opens the import dialog. The Cargo table's buttons call this. */
+export function openCargoImport() {
+  window.dispatchEvent(new CustomEvent(OPEN_EVENT))
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 export function CargoImportWizard({
   projectId,
   projectMode,
   templates,
+  existing,
   onImported,
 }: {
   projectId: string
   projectMode: EquipmentMode
   templates: SavedMapping[]
+  /** The cargo already in the project, so a repeat can be pointed out and replacing can be offered. */
+  existing: ExistingCargoSummary[]
   /** Called after lines were added. `suggest` is true when the planner asked to go on to the best-fit equipment. */
   onImported?: (result: { suggest: boolean }) => void
 }) {
-  const [sheet, setSheet] = useState<TabularSheet | null>(null)
-  const [extracted, setExtracted] = useState<ExtractedCargo | null>(null)
+  const [open, setOpen] = useState(false)
+  const [tab, setTab] = useState<Tab>("file")
+  const [stage, setStage] = useState<Stage>("choose")
+  const [picked, setPicked] = useState<Picked | null>(null)
+  const [pastedImage, setPastedImage] = useState<Picked | null>(null)
+  const [text, setText] = useState("")
+  const [busy, setBusy] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const [capabilities, setCapabilities] = useState<{ aiConfigured: boolean; aiLabel: string; model: string } | null>(null)
+
+  // Spreadsheet mapping step.
+  const [workbook, setWorkbook] = useState<WorkbookInfo | null>(null)
+  const [sheetIndex, setSheetIndex] = useState(0)
+  const [tableIndex, setTableIndex] = useState(0)
   const [columns, setColumns] = useState<Record<string, CargoImportField>>({})
-  const [lengthUnit, setLengthUnit] = useState<LengthUnit>("cm")
-  // Where the length unit came from, so the planner can see whether it was read from the file or is their own choice.
+  const [lengthUnit, setLengthUnit] = useState<LengthUnit | null>(null)
   const [unitSource, setUnitSource] = useState<"titles" | "none" | "conflict" | "chosen">("none")
   const [weightUnit, setWeightUnit] = useState<WeightUnit>("kg")
   const [templateName, setTemplateName] = useState("")
-  const [reading, setReading] = useState<"sheet" | "document" | null>(null)
-  const [importing, setImporting] = useState(false)
-  const [fileName, setFileName] = useState<string | null>(null)
-  const [dragging, setDragging] = useState(false)
-  const panelRef = useRef<HTMLElement>(null)
+
+  // Review step.
+  const [review, setReview] = useState<{ document: ReviewDocument; source: SourceView; back: Stage } | null>(null)
+
   const inputRef = useRef<HTMLInputElement>(null)
+  // Answers that arrive after Cancel (or after a newer request started) are ignored.
+  const requestRef = useRef(0)
+  const lockRef = useRef(false)
+  const urlsRef = useRef<string[]>([])
 
-  // Bring the review step into view as soon as a file has been read.
   useEffect(() => {
-    if (sheet || extracted) panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-  }, [sheet, extracted])
+    const urls = urlsRef
+    return () => urls.current.forEach((url) => URL.revokeObjectURL(url))
+  }, [])
 
-  function reset() {
-    setSheet(null)
-    setExtracted(null)
-    setFileName(null)
-    // Clear the input so picking the same file again still triggers a change.
+  function makePicked(file: File): Picked | null {
+    if (isSpreadsheetFile(file.name)) return { file, url: null, kind: "sheet" }
+    const kind = documentKind(file.name, file.type)
+    if (!kind) return null
+    const url = URL.createObjectURL(file)
+    urlsRef.current.push(url)
+    return { file, url, kind: kind.kind === "pdf" ? "pdf" : "image" }
+  }
+
+  function dropPicked(item: Picked | null) {
+    if (item?.url) URL.revokeObjectURL(item.url)
+  }
+
+  function resetAll() {
+    requestRef.current += 1
+    lockRef.current = false
+    dropPicked(picked)
+    dropPicked(pastedImage)
+    setPicked(null)
+    setPastedImage(null)
+    setText("")
+    setWorkbook(null)
+    setReview(null)
+    setColumns({})
+    setLengthUnit(null)
+    setUnitSource("none")
+    setStage("choose")
+    setBusy(null)
+    setImporting(false)
     if (inputRef.current) inputRef.current.value = ""
   }
 
-  const mapping = useMemo<ImportMapping>(
-    () => ({ lengthUnit, weightUnit, columns }),
-    [columns, lengthUnit, weightUnit],
-  )
-  const preview = useMemo(() => (sheet ? buildImportPreview(sheet, mapping) : null), [mapping, sheet])
-  const missing = missingRequiredFields(columns)
-  const busy = reading !== null || importing
-
-  async function readSheet(file: File) {
-    setReading("sheet")
-    try {
-      const body = new FormData()
-      body.set("file", file)
-      const result = await previewCargoFile(body)
-      if ("error" in result) {
-        toast.error(result.error)
-        reset()
-        return
-      }
-      setSheet(result.sheet)
-      const suggested = suggestMapping(result.sheet.headers)
-      setColumns(suggested)
-      // A unit written in the size column titles ("Length (ft)") is evidence; nothing else is guessed.
-      const unitHint = suggestLengthUnit(result.sheet.headers, suggested)
-      setUnitSource(unitHint.source)
-      if (unitHint.unit) setLengthUnit(unitHint.unit)
-    } catch {
-      toast.error("Could not read the file. Check your connection and try again.")
-      reset()
-    } finally {
-      setReading(null)
-    }
+  function close() {
+    setOpen(false)
+    resetAll()
   }
 
-  async function readDocument(file: File, isImage: boolean) {
-    setReading("document")
-    try {
-      // Phone photos are far larger than needed to read a table; shrinking keeps the upload quick.
-      const upload = isImage ? await shrinkImage(file) : file
-      if (upload.size > MAX_DOCUMENT_BYTES) {
-        toast.error("That file is over 10 MB. Use a smaller scan or fewer pages.")
-        reset()
-        return
-      }
-      const body = new FormData()
-      body.set("file", upload)
-      body.set("mode", projectMode)
-      const result = await extractCargoFromDocument(body)
-      if ("error" in result) {
-        toast.error(result.error)
-        reset()
-        return
-      }
-      if (result.cargo.drafts.length === 0) {
-        toast.error(result.cargo.notes[0] ?? "No packages were found in that document.")
-        reset()
-        return
-      }
-      setExtracted(result.cargo)
-    } catch {
-      toast.error("Could not read the document. Check your connection and try again.")
-      reset()
-    } finally {
-      setReading(null)
-    }
-  }
+  // Load what the server can do (is AI set up?) the first time the dialog opens.
+  useEffect(() => {
+    if (!open || capabilities) return
+    void getImportCapabilities().then((result) => {
+      if (!("error" in result)) setCapabilities(result)
+    })
+  }, [open, capabilities])
 
-  async function onFile(file: File | null) {
+  async function choose(file: File | null) {
     if (!file || busy) return
-    const document = documentKind(file.name, file.type)
-    if (!isSpreadsheetFile(file.name) && !document) {
+    const item = makePicked(file)
+    if (!item) {
       toast.error(UNSUPPORTED_FILE)
       return
     }
-    setSheet(null)
-    setExtracted(null)
-    setFileName(file.name || "pasted image")
-    if (isSpreadsheetFile(file.name)) await readSheet(file)
-    else if (document) await readDocument(file, document.kind === "image")
+    dropPicked(picked)
+    setPicked(item)
+    setTab("file")
+    setOpen(true)
+    // Spreadsheets are read here, on the server, with no AI: nothing leaves the planner's own system.
+    if (item.kind === "sheet") await readSheetFile(item)
   }
 
-  // Drop a file anywhere on the Cargo step, or paste a screenshot, instead of using the file picker.
-  const takeFile = useEffectEvent((file: File) => void onFile(file))
+  async function chooseImage(file: File) {
+    if (busy) return
+    if (!file.type.startsWith("image/") || !documentKind(file.name || "pasted.png", file.type)) {
+      toast.error("That is not an image Compass can read. Use a PNG, JPG or WebP picture.")
+      return
+    }
+    const item = makePicked(file.name ? file : new File([file], "pasted-image.png", { type: file.type }))
+    if (!item) return
+    dropPicked(pastedImage)
+    setPastedImage(item)
+    setTab("image")
+    setOpen(true)
+  }
+
+  // A button on the Cargo table opens the dialog; a file dropped anywhere, or an image pasted anywhere, opens it with that file.
+  const takeFile = useEffectEvent((file: File) => void choose(file))
+  const takeImage = useEffectEvent((file: File) => void chooseImage(file))
+  const openFromButton = useEffectEvent(() => setOpen(true))
   useEffect(() => {
     let depth = 0
     const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes("Files")
@@ -210,38 +245,222 @@ export function CargoImportWizard({
       const file = Array.from(event.clipboardData?.files ?? []).find((entry) => entry.type.startsWith("image/"))
       if (!file) return
       event.preventDefault()
-      takeFile(file)
+      takeImage(file)
     }
+    const onOpen = () => openFromButton()
     window.addEventListener("dragenter", onDragEnter)
     window.addEventListener("dragover", onDragOver)
     window.addEventListener("dragleave", onDragLeave)
     window.addEventListener("drop", onDrop)
     window.addEventListener("paste", onPaste)
+    window.addEventListener(OPEN_EVENT, onOpen)
     return () => {
       window.removeEventListener("dragenter", onDragEnter)
       window.removeEventListener("dragover", onDragOver)
       window.removeEventListener("dragleave", onDragLeave)
       window.removeEventListener("drop", onDrop)
       window.removeEventListener("paste", onPaste)
+      window.removeEventListener(OPEN_EVENT, onOpen)
     }
   }, [])
 
+  async function pasteFromClipboard() {
+    try {
+      const entries = await navigator.clipboard.read()
+      for (const entry of entries) {
+        const type = entry.types.find((candidate) => candidate.startsWith("image/"))
+        if (type) {
+          const blob = await entry.getType(type)
+          await chooseImage(new File([blob], "pasted-image.png", { type }))
+          return
+        }
+      }
+      toast.error("There is no image on the clipboard. Copy a screenshot first.")
+    } catch {
+      toast.error("The browser did not allow reading the clipboard. Press Ctrl+V (⌘V on a Mac) instead.")
+    }
+  }
+
+  // ---- reading -------------------------------------------------------------------------------
+
+  /** Runs one request at a time. A second click while one is running does nothing. */
+  async function guarded(phase: string, work: (current: number) => Promise<void>) {
+    if (lockRef.current) return
+    lockRef.current = true
+    const current = ++requestRef.current
+    setBusy(phase)
+    try {
+      await work(current)
+    } finally {
+      if (current === requestRef.current) {
+        lockRef.current = false
+        setBusy(null)
+      }
+    }
+  }
+
+  const stillCurrent = (current: number) => current === requestRef.current
+
+  async function readSheetFile(item: Picked) {
+    await guarded("Reading spreadsheet", async (current) => {
+      const body = new FormData()
+      body.set("file", item.file)
+      try {
+        const result = await readSpreadsheetFile(body)
+        if (!stillCurrent(current)) return
+        if ("error" in result) {
+          toast.error(result.error)
+          dropPicked(item)
+          setPicked(null)
+          return
+        }
+        setWorkbook(result.workbook)
+        // Start on the first sheet that has a table the importer is sure about.
+        const sheet = Math.max(0, result.workbook.sheets.findIndex((entry) => entry.tables.some((table) => table.confident)))
+        applyTable(result.workbook.sheets[sheet]!, sheet, 0)
+        setStage("mapping")
+      } catch {
+        if (stillCurrent(current)) toast.error("Could not read the file. Check your connection and try again.")
+      }
+    })
+  }
+
+  function applyTable(sheet: SheetInfo, sheetPosition: number, tablePosition: number) {
+    const table = sheet.tables[tablePosition]
+    setSheetIndex(sheetPosition)
+    setTableIndex(tablePosition)
+    if (!table) return
+    const suggested = suggestMapping(table.headers)
+    setColumns(suggested)
+    // A unit written in the size column titles ("Length (ft)") is evidence; nothing else is guessed.
+    const hint = suggestLengthUnit(table.headers, suggested)
+    setUnitSource(hint.source)
+    setLengthUnit(hint.unit)
+  }
+
+  function showReview(document: ReviewDocument, source: SourceView, back: Stage) {
+    setReview({ document, source, back })
+    setStage("review")
+  }
+
+  async function readDocument(item: Picked) {
+    await guarded("Preparing document", async (current) => {
+      try {
+        // Phone photos are far larger than needed to read a table; shrinking keeps the upload quick.
+        const upload = item.kind === "image" ? await shrinkImage(item.file) : item.file
+        if (!stillCurrent(current)) return
+        if (upload.size > MAX_DOCUMENT_BYTES) {
+          toast.error("That file is over 10 MB. Use a smaller scan or fewer pages.")
+          return
+        }
+        const body = new FormData()
+        body.set("file", upload)
+        body.set("mode", projectMode)
+        setBusy("Extracting cargo information")
+        const result = await extractCargoFromDocument(body)
+        if (!stillCurrent(current)) return
+        if ("error" in result) {
+          toast.error(result.error)
+          return
+        }
+        setBusy("Validating extracted values")
+        showReview(
+          result.document,
+          item.kind === "pdf" ? { kind: "pdf", url: item.url!, name: item.file.name } : { kind: "image", url: item.url!, name: item.file.name || "Pasted image" },
+          "choose",
+        )
+      } catch {
+        if (stillCurrent(current)) toast.error("Could not read the document. Check your connection and try again.")
+      }
+    })
+  }
+
+  async function readText() {
+    await guarded("Extracting cargo information", async (current) => {
+      try {
+        const result = await extractCargoFromText(text, projectMode)
+        if (!stillCurrent(current)) return
+        if ("error" in result) {
+          toast.error(result.error)
+          return
+        }
+        showReview(result.document, { kind: "text", text }, "choose")
+      } catch {
+        if (stillCurrent(current)) toast.error("Could not read the text. Check your connection and try again.")
+      }
+    })
+  }
+
+  const sheet = workbook?.sheets[sheetIndex] ?? null
+  const table: SheetTable | null = sheet?.tables[tableIndex] ?? null
+
+  async function readSheetWithAi() {
+    if (!picked || !sheet) return
+    const file = picked.file
+    const sheetName = sheet.name
+    const preview = sheet
+    await guarded("Extracting cargo information", async (current) => {
+      try {
+        const body = new FormData()
+        body.set("file", file)
+        body.set("sheet", sheetName)
+        body.set("mode", projectMode)
+        const result = await extractCargoFromSheet(body)
+        if (!stillCurrent(current)) return
+        if ("error" in result) {
+          toast.error(result.error)
+          return
+        }
+        showReview(result.document, { kind: "sheet", name: sheetName, headers: null, rows: preview.preview, truncated: preview.rowCount > preview.preview.length }, "mapping")
+      } catch {
+        if (stillCurrent(current)) toast.error("Could not read the sheet. Check your connection and try again.")
+      }
+    })
+  }
+
+  const mapping = useMemo<ImportMapping | null>(() => (lengthUnit ? { lengthUnit, weightUnit, columns } : null), [columns, lengthUnit, weightUnit])
+  const missing = missingRequiredFields(columns)
+
+  function continueFromMapping() {
+    if (!table || !mapping || missing.length > 0) return
+    const { lines, skipped, documentTotals } = tableToReviewLines(table, mapping)
+    const notes: string[] = []
+    if (skipped.length > 0) {
+      notes.push(
+        `Left out ${skipped.length} total or subtotal row${skipped.length === 1 ? "" : "s"} (row${skipped.length === 1 ? "" : "s"} ${skipped.map((row) => row.rowNumber).join(", ")}): they add up other rows and are not cargo.`,
+      )
+    }
+    const document: ReviewDocument = {
+      origin: "spreadsheet",
+      lines,
+      summary: `${table.sheetName ? `Sheet “${table.sheetName}”` : "Spreadsheet"}, table starting at row ${table.headerRow}.`,
+      language: null,
+      notes,
+      documentTotals,
+      partial: false,
+      reader: { provider: "", model: "" },
+    }
+    const rows = table.rows.slice(0, 500).map((cells, index) => ({ rowNumber: table.rowNumbers?.[index] ?? index + 2, cells }))
+    showReview(document, { kind: "sheet", name: table.sheetName ?? "Sheet", headers: table.headers, rows, truncated: table.rows.length > rows.length }, "mapping")
+  }
+
   function applyTemplate(templateId: string) {
     const template = templates.find((entry) => entry.id === templateId)
-    if (!template || !sheet) return
+    if (!template || !table) return
     setLengthUnit(template.mapping.lengthUnit)
     setUnitSource("chosen")
     setWeightUnit(template.mapping.weightUnit)
     setColumns((current) => {
       const next = { ...current }
       for (const [header, field] of Object.entries(template.mapping.columns)) {
-        if (sheet.headers.includes(header)) next[header] = field
+        if (table.headers.includes(header)) next[header] = field
       }
       return next
     })
   }
 
   async function onSaveTemplate() {
+    if (!mapping) return
     const result = await saveImportTemplate(templateName, mapping)
     if (!result.ok) {
       toast.error(result.error)
@@ -251,358 +470,602 @@ export function CargoImportWizard({
     setTemplateName("")
   }
 
-  async function onImport() {
-    if (!preview || preview.drafts.length === 0 || preview.issues.length > 0) return
-    setImporting(true)
-    const result = await importCargoRows(projectId, preview.drafts)
-    setImporting(false)
-    if (!result.ok) {
-      toast.error(result.error)
+  // ---- saving --------------------------------------------------------------------------------
+
+  async function importLines(lines: ReviewLine[], choice: ImportChoice) {
+    if (importing || lockRef.current) return
+    const rows = lines.map((line) => evaluateLine(line).input)
+    if (rows.length === 0 || rows.some((row) => row === null)) {
+      toast.error("Some selected lines are not complete. Fix or exclude them first.")
       return
     }
-    toast.success(`Imported ${result.count} cargo line${result.count === 1 ? "" : "s"}.`)
-    reset()
-    onImported?.({ suggest: false })
-  }
-
-  async function addExtracted(suggest: boolean) {
-    if (!extracted || extracted.drafts.length === 0) return
-    const ready = extracted.drafts.length - extracted.incomplete
+    lockRef.current = true
     setImporting(true)
     try {
-      const result = await importCargoRows(projectId, extracted.drafts)
+      const result = await importReviewedCargo(projectId, rows as NonNullable<(typeof rows)[number]>[], { mode: choice.mode, confirmReplace: choice.confirmReplace })
       if (!result.ok) {
         toast.error(result.error)
         return
       }
-      if (extracted.incomplete > 0) {
-        toast.warning(
-          `Added ${result.count} line${result.count === 1 ? "" : "s"}. ${extracted.incomplete} still need a size or weight; they are marked in the table.`,
-        )
-      } else {
-        toast.success(`Added ${result.count} cargo line${result.count === 1 ? "" : "s"}.`)
-      }
-      reset()
-      onImported?.({ suggest: suggest && ready > 0 })
+      toast.success(
+        result.removed > 0
+          ? `Replaced ${result.removed} line${result.removed === 1 ? "" : "s"} with ${result.count} new one${result.count === 1 ? "" : "s"}. Calculate the load plan again.`
+          : `Added ${result.count} cargo line${result.count === 1 ? "" : "s"}.`,
+      )
+      close()
+      onImported?.({ suggest: choice.suggest })
     } catch {
-      toast.error("Could not add the lines. Check your connection and try again.")
+      toast.error("Could not add the lines, and nothing was changed. Check your connection and try again.")
     } finally {
+      lockRef.current = false
       setImporting(false)
     }
   }
 
-  const extractedTotals = useMemo(() => {
-    if (!extracted) return null
-    return extracted.drafts.reduce(
-      (sum, draft) => ({
-        pieces: sum.pieces + draft.quantity,
-        kg: sum.kg + draft.weightKg * draft.quantity,
-        m3: sum.m3 + (draft.lengthCm * draft.widthCm * draft.heightCm * draft.quantity) / 1_000_000,
-      }),
-      { pieces: 0, kg: 0, m3: 0 },
-    )
-  }, [extracted])
+  const aiReady = capabilities?.aiConfigured === true
+  const aiName = capabilities?.aiLabel ?? "Claude (Anthropic)"
+  const wide = stage !== "choose"
 
   return (
     <>
-      {/* The one file picker. The import button above the cargo table opens it. */}
       <input
         ref={inputRef}
-        id={CARGO_FILE_INPUT_ID}
         type="file"
         className="sr-only"
         tabIndex={-1}
-        aria-label="Packing list to import: photo, PDF, Excel or CSV"
-        accept=".xlsx,.csv,.pdf,.jpg,.jpeg,.png,.webp,image/*,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        onChange={(event) => void onFile(event.target.files?.[0] ?? null)}
+        accept={ACCEPT}
+        aria-label="Packing list to import"
+        onChange={(event) => void choose(event.target.files?.[0] ?? null)}
       />
 
-      {dragging ? (
+      {dragging && !open ? (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-6 backdrop-blur-sm" aria-hidden="true">
           <div className="flex max-w-md flex-col items-center rounded-xl border-2 border-dashed border-primary bg-card px-10 py-12 text-center shadow-raised">
             <FileUp className="size-9 text-primary" />
             <p className="mt-4 text-base font-semibold">Drop your packing list</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              A photo, screenshot or PDF is read for you. Excel and CSV files are imported by column.
-            </p>
+            <p className="mt-1 text-sm text-muted-foreground">Excel and CSV files are read here. A photo, screenshot or PDF is read by AI once you confirm.</p>
           </div>
         </div>
       ) : null}
 
-      {reading || sheet || extracted ? (
-        <section ref={panelRef} className="scroll-mt-20 rounded-md border bg-card p-4" aria-label="Import cargo">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="flex items-center gap-2 truncate text-sm font-semibold">
-                {reading === "document" || extracted ? <Sparkles className="size-4 shrink-0 text-primary" aria-hidden="true" /> : null}
-                <span className="truncate">
-                  {extracted ? "Read from" : "Import"} {fileName ?? "file"}
-                </span>
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground" role="status" aria-live="polite">
-                {reading === "document" ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 className="size-3.5 animate-spin" />
-                    Reading the document. This usually takes 10 to 30 seconds…
-                  </span>
-                ) : reading === "sheet" ? (
-                  "Reading the file…"
-                ) : extracted ? (
-                  extracted.summary || "Check the lines below against your document, then add them."
-                ) : (
-                  "Check that each column matches the right field and the units are right, then import."
-                )}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button type="button" size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={busy}>
-                Choose another file
-              </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={reset} disabled={busy}>
-                Cancel
-              </Button>
-            </div>
-          </div>
+      <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
+        <DialogContent
+          className={cn("flex max-h-[92vh] flex-col overflow-hidden", wide ? "h-[92vh] max-w-[min(80rem,96vw)]" : "max-w-2xl")}
+          onInteractOutside={(event) => {
+            // A reviewed import is work in progress: only Cancel or the close button leaves it.
+            if (stage !== "choose" || busy) event.preventDefault()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Import packing list</DialogTitle>
+            <DialogDescription>
+              {stage === "choose"
+                ? "Upload a file, paste a picture, or paste text. You review every line before anything is saved."
+                : stage === "mapping"
+                  ? "Check that each column matches the right field and the units are right."
+                  : "Check the lines against the original. Nothing is saved until you import."}
+            </DialogDescription>
+          </DialogHeader>
 
-          {extracted && extractedTotals ? (
-            <div className="mt-5 space-y-4">
-              {extracted.notes.length > 0 ? (
-                <div className="rounded-md bg-amber-50 px-3 py-2.5 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
-                  <p className="flex items-center gap-2 font-medium">
-                    <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
-                    Please check
-                  </p>
-                  <ul className="mt-1.5 list-disc space-y-1 pl-6">
-                    {extracted.notes.map((note) => (
-                      <li key={note}>{note}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
+          {busy ? <Progress phase={busy} onCancel={() => { requestRef.current += 1; lockRef.current = false; setBusy(null) }} /> : null}
 
-              <div className="overflow-x-auto rounded-md border">
-                <table className="w-full min-w-[44rem] text-left text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
-                      <th className="px-3 py-2 font-medium">Mark</th>
-                      <th className="px-3 py-2 font-medium">Name</th>
-                      <th className="px-3 py-2 text-right font-medium">L (cm)</th>
-                      <th className="px-3 py-2 text-right font-medium">W (cm)</th>
-                      <th className="px-3 py-2 text-right font-medium">H (cm)</th>
-                      <th className="px-3 py-2 text-right font-medium">kg / piece</th>
-                      <th className="px-3 py-2 text-right font-medium">Qty</th>
-                      <th className="px-3 py-2 font-medium">Stack</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {extracted.drafts.map((draft, index) => (
-                      <tr key={`${draft.sku ?? ""}-${draft.name}-${index}`} className="border-b border-border/70 last:border-b-0">
-                        <td className="px-3 py-2 whitespace-nowrap">{draft.sku ?? "—"}</td>
-                        <td className="max-w-[22rem] truncate px-3 py-2" title={draft.name}>
-                          {draft.name}
-                        </td>
-                        <NumberCell value={draft.lengthCm} />
-                        <NumberCell value={draft.widthCm} />
-                        <NumberCell value={draft.heightCm} />
-                        <NumberCell value={draft.weightKg} />
-                        <td className="px-3 py-2 text-right tabular-nums">{draft.quantity}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{draft.stackable ? "Yes" : "No"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <p className="text-sm text-muted-foreground">
-                {extracted.drafts.length} line{extracted.drafts.length === 1 ? "" : "s"} · {extractedTotals.pieces} piece
-                {extractedTotals.pieces === 1 ? "" : "s"} · {formatKg(extractedTotals.kg)} · {formatM3(extractedTotals.m3)}
-                {extracted.incomplete > 0 ? (
-                  <span className="text-amber-700 dark:text-amber-400">
-                    {" "}
-                    · {extracted.incomplete} line{extracted.incomplete === 1 ? " is" : "s are"} missing a size or weight (shown as
-                    —). You can fill them in after adding.
-                  </span>
-                ) : null}
-              </p>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <Button type="button" onClick={() => void addExtracted(true)} disabled={importing}>
-                  {importing ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-                  Add {extracted.drafts.length} line{extracted.drafts.length === 1 ? "" : "s"} and suggest equipment
-                </Button>
-                <Button type="button" variant="outline" onClick={() => void addExtracted(false)} disabled={importing}>
-                  Add lines only
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                The document was read by Claude (Anthropic). It can misread a number, so compare the lines with your document. Sizes
-                are converted to cm and weights to kg.
-              </p>
-            </div>
-          ) : null}
-
-          {sheet && preview ? (
-            <div className="mt-5 space-y-4">
-              <div className="flex flex-wrap gap-3">
-                <label className="space-y-1 text-sm">
-                  <span className="block text-muted-foreground">Length unit</span>
-                  <select
-                    className="h-9 rounded-md border bg-background px-2"
-                    value={lengthUnit}
-                    onChange={(event) => {
-                      setLengthUnit(event.target.value as LengthUnit)
-                      setUnitSource("chosen")
-                    }}
+          {stage === "choose" ? (
+            <div className={cn("min-h-0 space-y-4 overflow-y-auto", busy && "pointer-events-none opacity-50")}>
+              <div role="tablist" aria-label="Import method" className="grid grid-cols-3 gap-1 rounded-md bg-muted p-1 text-sm">
+                {(
+                  [
+                    ["file", "Upload file", FileUp],
+                    ["image", "Paste image", ImageIcon],
+                    ["text", "Paste text", FileText],
+                  ] as const
+                ).map(([id, label, Icon]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === id}
+                    className={cn("flex items-center justify-center gap-2 rounded px-3 py-2 font-medium", tab === id ? "bg-card shadow-xs" : "text-muted-foreground hover:text-foreground")}
+                    onClick={() => setTab(id)}
                   >
-                    {LENGTH_UNITS.map((unit) => (
-                      <option key={unit} value={unit}>
-                        {LENGTH_UNIT_LABEL[unit]}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="block max-w-64 text-xs text-muted-foreground">
-                    {unitSource === "titles"
-                      ? "Read from the size column titles."
-                      : unitSource === "conflict"
-                        ? "The size columns name different units, so none was chosen for you. Pick the unit the numbers are in."
-                        : unitSource === "chosen"
-                          ? "Plain numbers are read in this unit. A unit written in a cell (4 ft, 1200 mm, 5'6\") is read as written."
-                          : "No unit was found in the column titles, so plain numbers are read in this unit. Check it before importing."}
-                  </span>
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span className="block text-muted-foreground">Weight unit</span>
-                  <select
-                    className="h-9 rounded-md border bg-background px-2"
-                    value={weightUnit}
-                    onChange={(event) => setWeightUnit(event.target.value as WeightUnit)}
-                  >
-                    {WEIGHT_UNITS.map((unit) => (
-                      <option key={unit} value={unit}>
-                        {unit}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {templates.length > 0 ? (
-                  <label className="space-y-1 text-sm">
-                    <span className="block text-muted-foreground">Saved mapping</span>
-                    <select
-                      className="h-9 rounded-md border bg-background px-2"
-                      defaultValue=""
-                      onChange={(event) => applyTemplate(event.target.value)}
-                    >
-                      <option value="">Apply a template</option>
-                      {templates.map((template) => (
-                        <option key={template.id} value={template.id}>
-                          {template.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
+                    <Icon className="size-4" aria-hidden="true" />
+                    {label}
+                  </button>
+                ))}
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[40rem] text-left text-sm">
-                  <thead>
-                    <tr className="border-b text-muted-foreground">
-                      <th className="py-2 pr-3 font-medium">Column</th>
-                      <th className="py-2 pr-3 font-medium">Maps to</th>
-                      <th className="py-2 font-medium">First value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sheet.headers.map((header) => (
-                      <tr key={header} className="border-b border-border/70">
-                        <td className="py-2 pr-3">{header}</td>
-                        <td className="py-2 pr-3">
-                          <select
-                            aria-label={`Map ${header}`}
-                            className="h-8 rounded-md border bg-background px-2"
-                            value={columns[header] ?? ""}
-                            onChange={(event) => {
-                              const value = event.target.value
-                              setColumns((current) => {
-                                const next = { ...current }
-                                if (!value) delete next[header]
-                                else next[header] = value as CargoImportField
-                                return next
-                              })
-                            }}
-                          >
-                            <option value="">Ignore</option>
-                            {CARGO_IMPORT_FIELDS.map((field) => (
-                              <option key={field} value={field}>
-                                {FIELD_LABEL[field]}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-2 text-muted-foreground">{sheet.rows[0]?.[sheet.headers.indexOf(header)] || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {missing.length > 0 ? (
-                <p className="text-sm text-destructive">Still need: {missing.join(", ")}.</p>
-              ) : null}
-              <p className="text-sm text-muted-foreground">
-                {preview.drafts.length} valid rows, {preview.issues.length} issues.
-              </p>
-              {preview.issues.length > 0 ? (
-                <ul className="max-h-40 space-y-1 overflow-auto text-sm text-destructive">
-                  {preview.issues.slice(0, 20).map((issue) => (
-                    <li key={`${issue.rowNumber}-${issue.field}-${issue.message}`}>
-                      Row {issue.rowNumber} · {issue.field}: {issue.message}
-                    </li>
-                  ))}
-                </ul>
+              {tab === "file" ? (
+                <UploadTab
+                  picked={picked}
+                  dragging={dragging}
+                  aiReady={aiReady}
+                  aiName={aiName}
+                  capabilitiesKnown={capabilities !== null}
+                  onBrowse={() => inputRef.current?.click()}
+                  onRemove={() => {
+                    dropPicked(picked)
+                    setPicked(null)
+                    setWorkbook(null)
+                    if (inputRef.current) inputRef.current.value = ""
+                  }}
+                  onRead={() => picked && void readDocument(picked)}
+                />
               ) : null}
 
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="space-y-1">
-                  <Label htmlFor="template-name">Save this mapping</Label>
-                  <Input
-                    id="template-name"
-                    value={templateName}
-                    onChange={(event) => setTemplateName(event.target.value)}
-                    placeholder="Warehouse export"
+              {tab === "image" ? (
+                <PasteImageTab
+                  picked={pastedImage}
+                  aiReady={aiReady}
+                  aiName={aiName}
+                  capabilitiesKnown={capabilities !== null}
+                  onPasteClick={() => void pasteFromClipboard()}
+                  onRemove={() => {
+                    dropPicked(pastedImage)
+                    setPastedImage(null)
+                  }}
+                  onRead={() => pastedImage && void readDocument(pastedImage)}
+                />
+              ) : null}
+
+              {tab === "text" ? (
+                <div className="space-y-3">
+                  <Label htmlFor="import-text">Paste cargo details from an email, quotation, chat message or shipment instruction</Label>
+                  <textarea
+                    id="import-text"
+                    className="min-h-48 w-full rounded-md border bg-background p-3 text-sm"
+                    placeholder="10 wooden crates, each measuring 120 x 80 x 60 cm and weighing 150 kg per crate, and 5 steel drums weighing 200 kg each."
+                    value={text}
+                    maxLength={MAX_PASTE_CHARS + 1000}
+                    onChange={(event) => setText(event.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {text.length.toLocaleString("en-US")} / {MAX_PASTE_CHARS.toLocaleString("en-US")} characters. Missing sizes, weights or quantities are flagged, never guessed.
+                  </p>
+                  <AiNotice aiReady={aiReady} aiName={aiName} capabilitiesKnown={capabilities !== null} />
+                  <Button type="button" onClick={() => void readText()} disabled={!aiReady || text.trim() === "" || text.length > MAX_PASTE_CHARS || busy !== null}>
+                    <Sparkles className="size-4" />
+                    Extract cargo from text
+                  </Button>
                 </div>
-                <Button type="button" variant="outline" onClick={onSaveTemplate} disabled={templateName.trim() === ""}>
-                  Save template
-                </Button>
-                <Button
-                  type="button"
-                  onClick={onImport}
-                  disabled={importing || preview.drafts.length === 0 || preview.issues.length > 0}
-                >
-                  {importing ? "Importing…" : `Import ${preview.drafts.length} row${preview.drafts.length === 1 ? "" : "s"}`}
-                </Button>
-              </div>
+              ) : null}
             </div>
           ) : null}
-        </section>
-      ) : null}
+
+          {stage === "mapping" && workbook && sheet && table ? (
+            <div className={cn("min-h-0 space-y-4 overflow-y-auto", busy && "pointer-events-none opacity-50")}>
+              <MappingStep
+                fileName={picked?.file.name ?? "file"}
+                workbook={workbook}
+                sheetIndex={sheetIndex}
+                tableIndex={tableIndex}
+                table={table}
+                columns={columns}
+                setColumns={setColumns}
+                lengthUnit={lengthUnit}
+                setLengthUnit={(unit) => {
+                  setLengthUnit(unit)
+                  setUnitSource("chosen")
+                }}
+                unitSource={unitSource}
+                weightUnit={weightUnit}
+                setWeightUnit={setWeightUnit}
+                templates={templates}
+                onApplyTemplate={applyTemplate}
+                templateName={templateName}
+                setTemplateName={setTemplateName}
+                onSaveTemplate={() => void onSaveTemplate()}
+                onSelectTable={(sheetPosition, tablePosition) => applyTable(workbook.sheets[sheetPosition]!, sheetPosition, tablePosition)}
+                missing={missing}
+                aiReady={aiReady}
+                aiName={aiName}
+                capabilitiesKnown={capabilities !== null}
+                onReadWithAi={() => void readSheetWithAi()}
+                onContinue={continueFromMapping}
+                onBack={() => {
+                  setStage("choose")
+                  setWorkbook(null)
+                }}
+                onCancel={close}
+              />
+            </div>
+          ) : null}
+
+          {stage === "review" && review ? (
+            <CargoImportReview
+              document={review.document}
+              source={review.source}
+              existing={existing}
+              importing={importing}
+              onBack={() => {
+                setStage(review.back)
+                setReview(null)
+              }}
+              onCancel={close}
+              onImport={(lines, choice) => void importLines(lines, choice)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
 
-/** A size or weight read from the document; a dash in amber when the document did not give it. */
-function NumberCell({ value }: { value: number }) {
+// ---- pieces ----------------------------------------------------------------------------------------
+
+function Progress({ phase, onCancel }: { phase: string; onCancel: () => void }) {
   return (
-    <td className={cn("px-3 py-2 text-right tabular-nums", value === 0 && "font-medium text-amber-700 dark:text-amber-400")}>
-      {value === 0 ? "—" : value}
-    </td>
+    <div className="flex flex-wrap items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm" role="status" aria-live="polite">
+      <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+      <span>{phase}…</span>
+      <span className="text-xs text-muted-foreground">Reading by AI can take 10 to 30 seconds. Cancel stops waiting; a request already sent may still finish on the server.</span>
+      <Button type="button" variant="ghost" size="sm" className="ml-auto" onClick={onCancel}>
+        Cancel
+      </Button>
+    </div>
   )
 }
 
-/** Id of the hidden file input; the cargo table's import button clicks it. */
-export const CARGO_FILE_INPUT_ID = "cargo-file"
+function AiNotice({ aiReady, aiName, capabilitiesKnown }: { aiReady: boolean; aiName: string; capabilitiesKnown: boolean }) {
+  if (!capabilitiesKnown) return <p className="text-xs text-muted-foreground">Checking whether AI reading is set up…</p>
+  return aiReady ? (
+    <p className="flex items-start gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      <span>This is read by an external AI service, {aiName}. Only send documents your company allows to leave this system. Excel and CSV files are read here and are not sent anywhere.</span>
+    </p>
+  ) : (
+    <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+      AI reading is not set up on this server (ANTHROPIC_API_KEY). Excel and CSV packing lists still import by column.
+    </p>
+  )
+}
 
-export function openCargoFilePicker() {
-  document.getElementById(CARGO_FILE_INPUT_ID)?.click()
+function UploadTab({
+  picked,
+  dragging,
+  aiReady,
+  aiName,
+  capabilitiesKnown,
+  onBrowse,
+  onRemove,
+  onRead,
+}: {
+  picked: Picked | null
+  dragging: boolean
+  aiReady: boolean
+  aiName: string
+  capabilitiesKnown: boolean
+  onBrowse: () => void
+  onRemove: () => void
+  onRead: () => void
+}) {
+  if (!picked) {
+    return (
+      <div className={cn("flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center", dragging && "border-primary bg-primary/5")}>
+        <FileUp className="size-8 text-muted-foreground" aria-hidden="true" />
+        <p className="text-sm font-medium">Drag a file here, or</p>
+        <Button type="button" onClick={onBrowse}>
+          Browse files
+        </Button>
+        <p className="max-w-md text-xs text-muted-foreground">
+          Excel (.xlsx), CSV, PDF, and JPG, PNG, WebP or GIF images. PDFs and images up to 10 MB (images over 5 MB are shrunk first); spreadsheets up to 5 MB.
+        </p>
+      </div>
+    )
+  }
+  const needsAi = picked.kind !== "sheet"
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 rounded-md border bg-card p-3">
+        <FileText className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{picked.file.name || "Pasted image"}</p>
+          <p className="text-xs text-muted-foreground">{formatBytes(picked.file.size)}</p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={onBrowse}>
+          Replace
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onRemove} aria-label="Remove file">
+          <X className="size-4" />
+        </Button>
+      </div>
+      <FilePreview picked={picked} />
+      {needsAi ? (
+        <>
+          <AiNotice aiReady={aiReady} aiName={aiName} capabilitiesKnown={capabilitiesKnown} />
+          <Button type="button" onClick={onRead} disabled={!aiReady}>
+            <Sparkles className="size-4" />
+            Extract cargo from this {picked.kind === "pdf" ? "PDF" : "image"}
+          </Button>
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">Reading the spreadsheet…</p>
+      )}
+    </div>
+  )
+}
+
+function FilePreview({ picked }: { picked: Picked }) {
+  if (picked.kind === "image" && picked.url) {
+    // eslint-disable-next-line @next/next/no-img-element -- a local preview of the planner's own file
+    return <img src={picked.url} alt={`Preview of ${picked.file.name}`} className="max-h-72 w-full rounded-md border object-contain" />
+  }
+  if (picked.kind === "pdf" && picked.url) {
+    return <iframe title={`Preview of ${picked.file.name}`} src={picked.url} className="h-72 w-full rounded-md border" />
+  }
+  return null
+}
+
+function PasteImageTab({
+  picked,
+  aiReady,
+  aiName,
+  capabilitiesKnown,
+  onPasteClick,
+  onRemove,
+  onRead,
+}: {
+  picked: Picked | null
+  aiReady: boolean
+  aiName: string
+  capabilitiesKnown: boolean
+  onPasteClick: () => void
+  onRemove: () => void
+  onRead: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      {!picked ? (
+        <div className="flex flex-col items-center gap-3 rounded-lg border-2 border-dashed px-6 py-10 text-center">
+          <ClipboardPaste className="size-8 text-muted-foreground" aria-hidden="true" />
+          <p className="text-sm font-medium">Press Ctrl+V (⌘V on a Mac) to paste a screenshot or a copied image</p>
+          <Button type="button" variant="outline" onClick={onPasteClick}>
+            Paste from clipboard
+          </Button>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-3 rounded-md border bg-card p-3">
+            <ImageIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">Pasted image</p>
+              <p className="text-xs text-muted-foreground">{formatBytes(picked.file.size)}</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={onPasteClick}>
+              Replace
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={onRemove} aria-label="Remove image">
+              <X className="size-4" />
+            </Button>
+          </div>
+          <FilePreview picked={picked} />
+          <AiNotice aiReady={aiReady} aiName={aiName} capabilitiesKnown={capabilitiesKnown} />
+          <Button type="button" onClick={onRead} disabled={!aiReady}>
+            <Sparkles className="size-4" />
+            Extract cargo from this image
+          </Button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function MappingStep({
+  fileName,
+  workbook,
+  sheetIndex,
+  tableIndex,
+  table,
+  columns,
+  setColumns,
+  lengthUnit,
+  setLengthUnit,
+  unitSource,
+  weightUnit,
+  setWeightUnit,
+  templates,
+  onApplyTemplate,
+  templateName,
+  setTemplateName,
+  onSaveTemplate,
+  onSelectTable,
+  missing,
+  aiReady,
+  aiName,
+  capabilitiesKnown,
+  onReadWithAi,
+  onContinue,
+  onBack,
+  onCancel,
+}: {
+  fileName: string
+  workbook: WorkbookInfo
+  sheetIndex: number
+  tableIndex: number
+  table: SheetTable
+  columns: Record<string, CargoImportField>
+  setColumns: (update: (current: Record<string, CargoImportField>) => Record<string, CargoImportField>) => void
+  lengthUnit: LengthUnit | null
+  setLengthUnit: (unit: LengthUnit | null) => void
+  unitSource: "titles" | "none" | "conflict" | "chosen"
+  weightUnit: WeightUnit
+  setWeightUnit: (unit: WeightUnit) => void
+  templates: SavedMapping[]
+  onApplyTemplate: (id: string) => void
+  templateName: string
+  setTemplateName: (name: string) => void
+  onSaveTemplate: () => void
+  onSelectTable: (sheet: number, table: number) => void
+  missing: CargoImportField[]
+  aiReady: boolean
+  aiName: string
+  capabilitiesKnown: boolean
+  onReadWithAi: () => void
+  onContinue: () => void
+  onBack: () => void
+  onCancel: () => void
+}) {
+  const sheet = workbook.sheets[sheetIndex]!
+  const select = "h-9 rounded-md border bg-background px-2"
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        {fileName}: {workbook.sheets.length} sheet{workbook.sheets.length === 1 ? "" : "s"}. The cargo table starts at row {table.headerRow}.
+      </p>
+
+      <div className="flex flex-wrap gap-3">
+        {workbook.sheets.length > 1 ? (
+          <label className="space-y-1 text-sm">
+            <span className="block text-muted-foreground">Worksheet</span>
+            <select className={select} value={sheetIndex} onChange={(event) => onSelectTable(Number(event.target.value), 0)}>
+              {workbook.sheets.map((entry, index) => (
+                <option key={entry.name} value={index}>
+                  {entry.name} ({entry.rowCount} rows)
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {sheet.tables.length > 1 ? (
+          <label className="space-y-1 text-sm">
+            <span className="block text-muted-foreground">Table on this sheet</span>
+            <select className={select} value={tableIndex} onChange={(event) => onSelectTable(sheetIndex, Number(event.target.value))}>
+              {sheet.tables.map((entry, index) => (
+                <option key={entry.headerRow} value={index}>
+                  Starting at row {entry.headerRow} ({entry.rows.length} rows)
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <label className="space-y-1 text-sm">
+          <span className="block text-muted-foreground">Size unit</span>
+          <select className={cn(select, lengthUnit === null && "border-amber-500")} value={lengthUnit ?? ""} onChange={(event) => setLengthUnit((event.target.value || null) as LengthUnit | null)}>
+            <option value="">Choose the unit…</option>
+            {LENGTH_UNITS.map((unit) => (
+              <option key={unit} value={unit}>
+                {LENGTH_UNIT_LABEL[unit]}
+              </option>
+            ))}
+          </select>
+          <span className="block max-w-64 text-xs text-muted-foreground">
+            {unitSource === "titles"
+              ? "Read from the size column titles."
+              : unitSource === "conflict"
+                ? "The size columns name different units, so none was chosen for you."
+                : unitSource === "chosen"
+                  ? "A unit written in a cell (4 ft, 1200 mm, 5'6\") is read as written."
+                  : "No unit was found in the column titles. Choose the unit the numbers are in."}
+          </span>
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="block text-muted-foreground">Weight unit</span>
+          <select className={select} value={weightUnit} onChange={(event) => setWeightUnit(event.target.value as WeightUnit)}>
+            {WEIGHT_UNITS.map((unit) => (
+              <option key={unit} value={unit}>
+                {unit}
+              </option>
+            ))}
+          </select>
+        </label>
+        {templates.length > 0 ? (
+          <label className="space-y-1 text-sm">
+            <span className="block text-muted-foreground">Saved mapping</span>
+            <select className={select} defaultValue="" onChange={(event) => onApplyTemplate(event.target.value)}>
+              <option value="">Apply a template</option>
+              {templates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
+
+      {!table.confident ? (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+          Compass could not find all the columns it needs (a description or mark, the size and the weight) in this table. Choose them below, or let AI read the sheet.
+        </p>
+      ) : null}
+
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full min-w-[40rem] text-left text-sm">
+          <thead>
+            <tr className="border-b bg-muted/40 text-muted-foreground">
+              <th className="px-3 py-2 font-medium">Column</th>
+              <th className="px-3 py-2 font-medium">Maps to</th>
+              <th className="px-3 py-2 font-medium">First value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {table.headers.map((header, position) => (
+              <tr key={`${header}-${position}`} className="border-b border-border/70">
+                <td className="px-3 py-2">{header}</td>
+                <td className="px-3 py-2">
+                  <select
+                    aria-label={`Map ${header}`}
+                    className="h-8 rounded-md border bg-background px-2"
+                    value={columns[header] ?? ""}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setColumns((current) => {
+                        const next = { ...current }
+                        if (!value) delete next[header]
+                        else next[header] = value as CargoImportField
+                        return next
+                      })
+                    }}
+                  >
+                    <option value="">Ignore</option>
+                    {CARGO_IMPORT_FIELDS.map((field) => (
+                      <option key={field} value={field}>
+                        {FIELD_LABEL[field]}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="max-w-64 truncate px-3 py-2 text-muted-foreground" title={table.rows[0]?.[position]}>
+                  {table.rows[0]?.[position] || "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {missing.length > 0 ? <p className="text-sm text-destructive">Still need: {missing.map((field) => FIELD_LABEL[field]).join(", ")}.</p> : null}
+      <p className="text-xs text-muted-foreground">
+        With no Quantity column, each row is one piece. Rows that add up other rows (Total, Subtotal) are left out. Weights are kept per piece; a line total is divided only after you confirm it in the review.
+      </p>
+
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <Label htmlFor="template-name">Save this mapping</Label>
+          <Input id="template-name" value={templateName} onChange={(event) => setTemplateName(event.target.value)} placeholder="Warehouse export" />
+        </div>
+        <Button type="button" variant="outline" onClick={onSaveTemplate} disabled={templateName.trim() === "" || missing.length > 0 || lengthUnit === null}>
+          Save template
+        </Button>
+      </div>
+
+      <div className="space-y-2 border-t pt-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" onClick={onContinue} disabled={missing.length > 0 || lengthUnit === null}>
+            <Check className="size-4" />
+            Continue to review
+          </Button>
+          <Button type="button" variant="outline" onClick={onReadWithAi} disabled={!aiReady} title={aiReady ? undefined : "AI reading is not set up on this server"}>
+            <Sparkles className="size-4" />
+            Read this sheet with AI instead
+          </Button>
+          <Button type="button" variant="ghost" onClick={onBack}>
+            Back
+          </Button>
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+        <AiNotice aiReady={aiReady} aiName={aiName} capabilitiesKnown={capabilitiesKnown} />
+      </div>
+    </div>
+  )
 }

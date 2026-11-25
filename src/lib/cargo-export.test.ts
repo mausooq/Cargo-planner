@@ -1,7 +1,8 @@
 import type { CargoItemInput } from "@compass/domain"
 import { describe, expect, it } from "vitest"
 import { CARGO_EXPORT_HEADERS, cargoExportFileName, cargoExportRows } from "@/lib/cargo-export"
-import { buildImportPreview, CARGO_IMPORT_FIELDS, suggestMapping } from "@/lib/cargo-import"
+import { CARGO_IMPORT_FIELDS, suggestMapping } from "@/lib/cargo-import"
+import { buildImportPreview } from "@/lib/import-table"
 
 function line(overrides: Partial<CargoItemInput> = {}): CargoItemInput {
   return {
@@ -46,7 +47,9 @@ describe("cargo export", () => {
 
   it("uses column titles the import wizard maps by itself", () => {
     const mapped = Object.values(suggestMapping([...CARGO_EXPORT_HEADERS]))
-    expect(mapped.slice().sort()).toEqual([...CARGO_IMPORT_FIELDS].sort())
+    // "dimensions" (one combined size cell) and "lineWeight" (a line total) are for customer files; the export writes separate size and per-piece weight columns.
+    const exported = CARGO_IMPORT_FIELDS.filter((field) => field !== "dimensions" && field !== "lineWeight")
+    expect(mapped.slice().sort()).toEqual([...exported].sort())
   })
 
   it("comes back unchanged when the exported sheet is imported again", () => {

@@ -199,6 +199,65 @@ The choice is a browser preference shared by every screen (key `compass.cargo.le
 - **Excel plan export** writes sizes and positions in the selected unit with the unit in every title, and a Units note on the Notes sheet. Clearance, weights (kg) and volumes (m³) keep their units.
 - **Packing lists read by the AI** are still converted to centimetres by the reader and flagged for review.
 
+## Packing-list import
+
+One dialog (Cargo step, **Import packing list**, or drop a file or paste an image anywhere on the page) with three ways in: **Upload file**, **Paste image** and **Paste text**. Every way ends in the same review screen, and **nothing is saved until the planner imports**.
+
+### Which reader handles what
+
+| Input | Reader | Sent outside? |
+| --- | --- | --- |
+| Excel (.xlsx), CSV | Deterministic: header detection, column mapping, saved templates | No. Works with no API key. |
+| Excel the mapper cannot interpret | Optional: "Read this sheet with AI instead" sends the chosen sheet's cell values as text | Yes, to the AI provider, only on the planner's click |
+| PDF, JPG, PNG, WebP, GIF | AI provider (Claude) | Yes, only on the planner's click |
+| Pasted text | AI provider (Claude) | Yes, only on the planner's click |
+
+The dialog says so before any request. Spreadsheets are never sent to the AI unless the planner asks.
+
+### Spreadsheets
+
+- Header rows are found anywhere on a sheet (title blocks above are skipped). A sheet can hold several tables; each header row starts one. Every sheet is listed and the planner picks the worksheet and table.
+- Merged cells are filled across their block. Blank rows are ignored. Rows that read Total, Sub total, Grand total (also in French, German, Spanish, Chinese and Arabic), and rows that have only numbers and no description or size, are **left out** and listed. A stated total is kept to compare with the lines.
+- A size in one cell (`120 x 80 x 60 cm`, `1.2 x 0.8 x 0.6 m`, `5 ft 6 in x 3 ft x 2 ft`) is split. A unit written once covers all three; a unit on each part stays with it.
+- A line total weight column is divided by the quantity only after the planner confirms it in the review.
+- Formulas are not read or run: only the values the file already holds. Macro workbooks and external parts are refused. Limits: 5 MB, 25 sheets, 5,200 rows and 120 columns per sheet, 400 zip parts, 80 MB unpacked and a 150:1 squeeze ratio. A sheet over the row limit is refused, never cut short.
+- The `xlsx` package (0.18.5) is an old release with published weaknesses (prototype pollution, regex slowness). The limits and the zip check above keep hostile files away from it, and sheet names such as `__proto__` are never used as keys. A newer SheetJS build is only published outside npm; replacing the dependency needs a decision (see the progress notes).
+- Numbers in spreadsheet cells follow the English convention the importer has always used (dot decimal, comma thousands) and are not flagged as ambiguous.
+
+### Reading by AI
+
+- The model is asked for values **exactly as written** (`150 kg`, `5'6"`, `1.200,5`), not converted. The same code that reads the Cargo grid converts them, so feet and inches, decimal feet, mm, m and in behave identically everywhere.
+- Weights in kg, g, tonnes (`t`) and pounds are converted to kg (`ton` is refused: short, long and metric differ). Compass stores kg.
+- A unit that is not written in the document is **never assumed**: the line is flagged "Ambiguous value" and the planner chooses.
+- Per piece, line total and unclear weights are kept apart. A line total becomes a per-piece weight only when the quantity is known, is shown as "calculated by Compass" with the working (`750 kg ÷ 5 pieces = 150 kg per piece`), and needs confirming. A shipment total is never spread across lines. Net weights are flagged until confirmed. Quantity × weight is compared with a line total and with the document's totals; differences are shown, not changed.
+- A number like `1,200` or `1.200` can be read two ways. It is read the English way, flagged, and the planner confirms it. A number starting with 0 (`0.777`) is a decimal.
+- Hazard class, stackability, floor-only, turning and clearance are applied only when the document states them for that line. Handling notes and a destination that is a place name are kept for reading in the review and are **not** stored on the cargo line (no schema change). "This side up" means the piece may still turn on the floor (`ROTATE_90`); "do not rotate" means `FIXED`.
+- Original descriptions and marks are kept as written. A translation is shown beside, never over, the original.
+- Statuses: Ready for review, User corrected, Missing required information, Ambiguous value, Invalid value, Excluded from import. "Model-reported uncertainty" is shown separately from "checks Compass made itself". Source page, row and quote are shown only when the reader gave them; none are invented and no confidence percentages are shown.
+- Everything in a document or pasted text is data, never an instruction: the prompt says so, pasted text is fenced so it cannot close its wrapper, the answer is validated against a schema before use, control and direction-override characters are removed, and all text is shown as plain text.
+
+### Limits and honest gaps
+
+- PDFs: up to 10 MB and (default) 30 pages, judged from the file's structure. A longer PDF is refused with a message, not cut short. Splitting a PDF into page batches, and extracting text locally, would need a PDF library that is not installed, so **page batching is not implemented**.
+- Images over 5 MB are shrunk in the browser first. Rotation and poor lighting are left to the model; unreadable parts are reported, not guessed.
+- Pasted text: 30,000 characters. A reading returns at most 500 lines and says when more were left.
+- Cancel stops waiting for an answer. A request already sent may finish on the server and cost a request.
+- One reading runs at a time per person and content: a repeated click joins the one running.
+- Multilingual reading is built for (descriptions, numbers, units, headers in several languages) but **its accuracy has not been measured** on representative documents.
+- No live Claude call has been made during development; every AI path is tested with a stand-in client.
+
+### Saving
+
+- Only included, complete, validated lines are saved, and the server checks every line again (size and weight above zero, a name or mark, project access in the planner's organization).
+- **Append** adds the lines. **Replace** needs an explicit confirmation and runs removal and creation in one transaction, so a failure leaves the cargo as it was. Replacing also removes the old lines' places in any saved plan (they are deleted with the lines), so the plan is out of date and must be calculated again.
+- Repeated lines (same mark, name, size and weight) and lines already in the project are pointed out, never removed. Several lines may share a SKU.
+- Importing changes the cargo signature, so the existing plan shows as out of date through the usual plan-status mechanism; nothing is recalculated automatically. Equipment suggestions are computed from the cargo and follow it. Project clearance applies unless the document stated a clearance for the line.
+- The saved display unit is not changed by an import.
+
+### Configuration
+
+`ANTHROPIC_API_KEY` (server only), `COMPASS_AI_PROVIDER` (default `anthropic`), `COMPASS_AI_MODEL` (default `claude-sonnet-5-5`), `COMPASS_AI_TIMEOUT_MS`, `COMPASS_AI_MAX_PDF_PAGES`. Documented in `.env.example`. A provider other than `anthropic` reports "not available" until one is written against `src/lib/extraction-provider.ts`.
+
 ## Auth and database
 
 Local demo organization id is `org_compass_demo`. Accounts, all with password `compass-demo`:

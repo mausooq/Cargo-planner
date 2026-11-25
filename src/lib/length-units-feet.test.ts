@@ -3,7 +3,6 @@ import { floorUtilization } from "@compass/physics"
 import { solve, type SolverCargo, type SolverEquipment } from "@compass/solver"
 import { describe, expect, it } from "vitest"
 import {
-  buildImportPreview,
   importMappingSchema,
   readDimensionHeader,
   suggestLengthUnit,
@@ -11,6 +10,7 @@ import {
   toCentimetres,
   type ImportMapping,
 } from "@/lib/cargo-import"
+import { buildImportPreview } from "@/lib/import-table"
 import { CARGO_EXPORT_HEADERS, cargoExportHeaders, cargoExportRows } from "@/lib/cargo-export"
 import {
   CM_PER_UNIT,

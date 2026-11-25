@@ -4,11 +4,13 @@ import { Prisma } from "@prisma/client"
 import { cargoItemInputSchema, formatAllowedRotations, type CargoItemInput } from "@compass/domain"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
-import { readTabularFile } from "@/lib/cargo-file"
 import { cargoPreset } from "@/lib/cargo-defaults"
-import { documentKind, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES, type ExtractedCargo } from "@/lib/cargo-extract"
-import { readCargoDocument } from "@/lib/cargo-extract-server"
-import { importMappingSchema, MAX_IMPORT_ROWS, type TabularSheet } from "@/lib/cargo-import"
+import { documentKind, extractionToReview, isSpreadsheetFile, MAX_PASTE_CHARS, type ExtractionOrigin, type ReviewDocument } from "@/lib/cargo-extract"
+import { getExtractionProvider, runExtraction } from "@/lib/cargo-extract-server"
+import { importMappingSchema, MAX_IMPORT_ROWS } from "@/lib/cargo-import"
+import type { ExtractionErrorCode, ExtractionRequest } from "@/lib/extraction-provider"
+import { readWorkbook, SheetError, sheetToText, type WorkbookInfo } from "@/lib/import-sheet"
+import { checkDocumentUpload } from "@/lib/import-upload"
 import { normaliseSides } from "@compass/physics"
 import { cleanSetting, normaliseOverride, settingToJson } from "@/lib/clearance"
 import { editorOrError } from "@/lib/editor"
@@ -125,53 +127,162 @@ export async function bulkUpdateCargo(
   return { ok: true as const }
 }
 
-export async function previewCargoFile(formData: FormData): Promise<{ sheet: TabularSheet } | { error: string }> {
+/** What the import dialog can offer on this server. Reveals whether AI reading is set up, never the key. */
+export async function getImportCapabilities(): Promise<{ aiConfigured: boolean; aiLabel: string; model: string } | { error: string }> {
+  const access = await editorOrError()
+  if (!access.ok) return { error: access.error }
+  const provider = getExtractionProvider()
+  return { aiConfigured: provider.isConfigured(), aiLabel: provider.label, model: provider.model }
+}
+
+/** Reads an Excel or CSV file and finds the cargo tables in it. Works without any AI key. */
+export async function readSpreadsheetFile(formData: FormData): Promise<{ workbook: WorkbookInfo } | { error: string }> {
   const access = await editorOrError()
   if (!access.ok) return { error: access.error }
 
   const file = formData.get("file")
   if (!(file instanceof File)) return { error: "Choose an Excel or CSV file." }
-  const name = file.name.toLowerCase()
-  if (!name.endsWith(".xlsx") && !name.endsWith(".csv")) {
-    return { error: "Use an .xlsx or .csv file." }
-  }
-
+  if (!isSpreadsheetFile(file.name)) return { error: "Use an .xlsx or .csv file." }
   try {
-    const bytes = new Uint8Array(await file.arrayBuffer())
-    return { sheet: readTabularFile(bytes) }
+    return { workbook: readWorkbook(new Uint8Array(await file.arrayBuffer()), file.name) }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "The file could not be read."
-    return { error: message }
+    return { error: error instanceof SheetError ? error.message : "The file could not be read." }
   }
 }
 
-/** Reads a photo or PDF of a packing list with Claude and returns cargo lines for the planner to review. */
-export async function extractCargoFromDocument(
-  formData: FormData,
-): Promise<{ cargo: ExtractedCargo } | { error: string }> {
+export type ExtractOutcome = { document: ReviewDocument } | { error: string; code?: ExtractionErrorCode }
+
+function modeLabelOf(value: unknown): string {
+  const mode = typeof value === "string" ? value.toLowerCase() : ""
+  return ["sea", "air", "road", "pallet"].includes(mode) ? mode : "sea"
+}
+
+/** One reading: checks the provider is set up, runs it once per person and content, and turns the answer into review lines. Nothing is saved. */
+async function readWithProvider(
+  scope: string,
+  origin: ExtractionOrigin,
+  request: ExtractionRequest,
+  tag?: (document: ReviewDocument) => void,
+): Promise<ExtractOutcome> {
+  const provider = getExtractionProvider()
+  if (!provider.isConfigured()) {
+    // The provider itself says what is missing, in words for the planner.
+    const result = await provider.extract(request)
+    return result.ok ? { error: "AI reading is not available." } : { error: result.error, code: result.code }
+  }
+  const result = await runExtraction(scope, provider, request)
+  if (!result.ok) return { error: result.error, code: result.code }
+  const document = extractionToReview(result.raw, origin, { provider: provider.label, model: result.model })
+  tag?.(document)
+  return { document }
+}
+
+/** Reads a photo or PDF of a packing list with the AI provider and returns lines for review. */
+export async function extractCargoFromDocument(formData: FormData): Promise<ExtractOutcome> {
   const access = await editorOrError()
   if (!access.ok) return { error: access.error }
 
   const file = formData.get("file")
   if (!(file instanceof File)) return { error: "Choose a photo or PDF of the packing list." }
-  const document = documentKind(file.name, file.type)
-  if (!document) return { error: "Use a PDF, JPG, PNG or WebP file. For spreadsheets, use an .xlsx or .csv file." }
-  if (file.size === 0) return { error: "That file is empty." }
-  if (file.size > MAX_DOCUMENT_BYTES) return { error: "That file is over 10 MB. Use a smaller scan or fewer pages." }
-  if (document.kind === "image" && file.size > MAX_IMAGE_BYTES) {
-    return { error: "That image is over 5 MB. Save it smaller, or take a screenshot of the list instead." }
-  }
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const checked = checkDocumentUpload(documentKind(file.name, file.type), bytes)
+  if (!checked.ok) return { error: checked.error }
 
-  const rawMode = formData.get("mode")
-  const mode = typeof rawMode === "string" && rawMode ? rawMode.toLowerCase() : "sea"
-  const result = await readCargoDocument({
-    bytes: new Uint8Array(await file.arrayBuffer()),
-    document,
-    modeLabel: ["sea", "air", "road", "pallet"].includes(mode) ? mode : "sea",
-  })
-  return result.ok ? { cargo: result.cargo } : { error: result.error }
+  const input = checked.kind.kind === "pdf" ? ({ kind: "pdf", bytes } as const) : ({ kind: "image", bytes, mediaType: checked.kind.mediaType } as const)
+  return readWithProvider(`${access.user.orgId}:${access.user.id}`, input.kind, { input, modeLabel: modeLabelOf(formData.get("mode")) })
 }
 
+/** Reads cargo from pasted text (an email, a quotation, a chat message) and returns lines for review. */
+export async function extractCargoFromText(text: string, mode: string): Promise<ExtractOutcome> {
+  const access = await editorOrError()
+  if (!access.ok) return { error: access.error }
+  const cleaned = typeof text === "string" ? text.trim() : ""
+  if (cleaned.length === 0) return { error: "Paste the cargo details first." }
+  if (cleaned.length > MAX_PASTE_CHARS) return { error: `That text is longer than ${MAX_PASTE_CHARS.toLocaleString("en-US")} characters. Paste it in parts.` }
+  return readWithProvider(`${access.user.orgId}:${access.user.id}`, "text", { input: { kind: "text", text: cleaned, label: "text" }, modeLabel: modeLabelOf(mode) })
+}
+
+/**
+ * Claude-assisted reading of one spreadsheet sheet, for customer files the column mapper cannot
+ * interpret. The file is read again here on the server and only the cell values of the chosen
+ * sheet are sent, with their row numbers and cell references.
+ */
+export async function extractCargoFromSheet(formData: FormData): Promise<ExtractOutcome> {
+  const access = await editorOrError()
+  if (!access.ok) return { error: access.error }
+  const file = formData.get("file")
+  const sheetName = formData.get("sheet")
+  if (!(file instanceof File) || typeof sheetName !== "string") return { error: "Choose a sheet to read." }
+  if (!isSpreadsheetFile(file.name)) return { error: "Use an .xlsx or .csv file." }
+
+  let text: ReturnType<typeof sheetToText>
+  try {
+    text = sheetToText(new Uint8Array(await file.arrayBuffer()), file.name, sheetName)
+  } catch (error) {
+    return { error: error instanceof SheetError ? error.message : "The file could not be read." }
+  }
+  if (!text.ok) return { error: text.error }
+  return readWithProvider(
+    `${access.user.orgId}:${access.user.id}`,
+    "spreadsheet",
+    { input: { kind: "text", text: text.text, label: "spreadsheet" }, modeLabel: modeLabelOf(formData.get("mode")) },
+    // The reader knows rows, not which sheet they were on; the server does.
+    (document) => {
+      for (const line of document.lines) line.source = { ...line.source, sheet: sheetName }
+    },
+  )
+}
+
+/** A line the import will accept: a valid cargo line with a real size and weight. */
+const importLineSchema = cargoItemInputSchema.superRefine((line, context) => {
+  for (const field of ["lengthCm", "widthCm", "heightCm", "weightKg"] as const) {
+    if (!(line[field] > 0)) context.addIssue({ code: "custom", message: "Size and weight must be greater than zero.", path: [field] })
+  }
+  if (line.name.trim() === "") context.addIssue({ code: "custom", message: "Every line needs a description or a mark.", path: ["name"] })
+})
+
+export type ImportMode = "append" | "replace"
+
+/**
+ * Saves reviewed lines. The server checks everything again (access, every line) whatever the
+ * screen showed. Replacing needs `confirmReplace`, and the removal and the new lines happen in one
+ * transaction, so a failure leaves the project exactly as it was. Existing plans are not rerun: the
+ * plan status mechanism sees the cargo changed and marks them out of date.
+ */
+export async function importReviewedCargo(
+  projectId: string,
+  rows: CargoItemInput[],
+  options: { mode?: ImportMode; confirmReplace?: boolean } = {},
+) {
+  const project = await editableProject(projectId)
+  if (!project.ok) return project
+  const parsed = z.array(importLineSchema).min(1).max(MAX_IMPORT_ROWS).safeParse(rows)
+  if (!parsed.success) return { ok: false as const, error: "The import has lines that are incomplete or invalid. Fix or exclude them first." }
+
+  const mode = options.mode ?? "append"
+  if (mode === "replace" && options.confirmReplace !== true) {
+    return { ok: false as const, error: "Replacing the existing cargo needs your confirmation." }
+  }
+
+  try {
+    const data = parsed.data.map((row) => cargoData(project.projectId, row))
+    if (mode === "replace") {
+      const [removed] = await prisma.$transaction([
+        prisma.cargoItem.deleteMany({ where: { projectId: project.projectId } }),
+        prisma.cargoItem.createMany({ data }),
+      ])
+      revalidatePath(`/projects/${project.projectId}`)
+      return { ok: true as const, count: parsed.data.length, removed: removed.count }
+    }
+    await prisma.cargoItem.createMany({ data })
+    revalidatePath(`/projects/${project.projectId}`)
+    return { ok: true as const, count: parsed.data.length, removed: 0 }
+  } catch {
+    return { ok: false as const, error: "The lines could not be saved, and nothing was changed. Try again." }
+  }
+}
+
+/** Adds lines as they are, for Undo after a delete. Saving a reviewed import is `importReviewedCargo`, which is stricter. */
 export async function importCargoRows(projectId: string, rows: CargoItemInput[]) {
   const project = await editableProject(projectId)
   if (!project.ok) return project

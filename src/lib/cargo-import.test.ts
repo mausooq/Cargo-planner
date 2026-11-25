@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { buildImportPreview, suggestMapping, toCentimetres, toKilograms } from "./cargo-import"
+import { suggestMapping, toCentimetres, toKilograms } from "./cargo-import"
+import { buildImportPreview } from "./import-table"
 
 describe("cargo unit conversion", () => {
   it("converts millimetres, inches, and pounds into cm and kg", () => {

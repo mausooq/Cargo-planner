@@ -1,17 +1,17 @@
 import {
   AXIS_ROTATIONS,
-  cargoItemInputSchema,
   type CargoItemInput,
   type CargoShape,
   type Orientation,
 } from "@compass/domain"
 import { z } from "zod"
-import { fromDisplayLength, LENGTH_UNITS, lengthUnitFromWord, parseLength, roundStoredCm, type LengthUnit } from "@/lib/cargo-units"
+import { IMPORT_WEIGHT_UNITS, KG_PER_WEIGHT_UNIT } from "@/lib/import-units"
+import { fromDisplayLength, LENGTH_UNITS, lengthUnitFromWord, roundStoredCm, type LengthUnit } from "@/lib/cargo-units"
 
 // Length units and conversion live in cargo-units.ts, shared with the Cargo grid and the exports.
 export { LENGTH_UNITS }
 export type { LengthUnit }
-export const WEIGHT_UNITS = ["kg", "lb"] as const
+export const WEIGHT_UNITS = IMPORT_WEIGHT_UNITS
 export const lengthUnitSchema = z.enum(LENGTH_UNITS)
 export const weightUnitSchema = z.enum(WEIGHT_UNITS)
 export type WeightUnit = z.infer<typeof weightUnitSchema>
@@ -22,7 +22,9 @@ export const CARGO_IMPORT_FIELDS = [
   "length",
   "width",
   "height",
+  "dimensions",
   "weight",
+  "lineWeight",
   "quantity",
   "shape",
   "orientation",
@@ -159,11 +161,94 @@ const FIELD_ALIASES: Record<string, CargoImportField> = {
   segregation: "segregationClass",
   color: "color",
   colour: "color",
+  // Customer packing lists: other titles, and other languages.
+  dimensions: "dimensions",
+  dimension: "dimensions",
+  dims: "dimensions",
+  size: "dimensions",
+  measurement: "dimensions",
+  measurements: "dimensions",
+  "size cm": "dimensions",
+  "dimensions cm": "dimensions",
+  "l x w x h": "dimensions",
+  "lxwxh": "dimensions",
+  "l*w*h": "dimensions",
+  "l×w×h": "dimensions",
+  abmessungen: "dimensions",
+  dimensiones: "dimensions",
+  tamaño: "dimensions",
+  尺寸: "dimensions",
+  الأبعاد: "dimensions",
+  المقاس: "dimensions",
+  "gross weight": "weight",
+  "gross wt": "weight",
+  "g w": "weight",
+  "gw": "weight",
+  "unit weight": "weight",
+  "weight per piece": "weight",
+  "weight each": "weight",
+  "weight per unit": "weight",
+  "poids brut": "weight",
+  poids: "weight",
+  gewicht: "weight",
+  bruttogewicht: "weight",
+  peso: "weight",
+  "peso bruto": "weight",
+  毛重: "weight",
+  重量: "weight",
+  الوزن: "weight",
+  "total weight": "lineWeight",
+  "line weight": "lineWeight",
+  "total gross weight": "lineWeight",
+  "total gw": "lineWeight",
+  "poids total": "lineWeight",
+  gesamtgewicht: "lineWeight",
+  "peso total": "lineWeight",
+  总重: "lineWeight",
+  "الوزن الإجمالي": "lineWeight",
+  pcs: "quantity",
+  pieces: "quantity",
+  packages: "quantity",
+  "no of packages": "quantity",
+  "no of pcs": "quantity",
+  quantité: "quantity",
+  menge: "quantity",
+  anzahl: "quantity",
+  cantidad: "quantity",
+  数量: "quantity",
+  الكمية: "quantity",
+  "goods description": "name",
+  "description of goods": "name",
+  "cargo description": "name",
+  "commodity": "name",
+  désignation: "name",
+  bezeichnung: "name",
+  descripción: "name",
+  品名: "name",
+  货物名称: "name",
+  البيان: "name",
+  "package no": "sku",
+  "package number": "sku",
+  "package id": "sku",
+  "case no": "sku",
+  "marks": "sku",
+  "marks and numbers": "sku",
+  reference: "sku",
+  ref: "sku",
+  "part no": "sku",
+  "part number": "sku",
+  "item no": "sku",
 }
 
 export type TabularSheet = {
   headers: string[]
   rows: string[][]
+  /** The worksheet the table was read from, when the file has several. */
+  sheetName?: string
+  /** The spreadsheet row number of each entry in `rows` (header row 5 means the first entry is row 6). */
+  rowNumbers?: number[]
+  /** Zero-based spreadsheet column of the first header (3 means the table starts in column D). */
+  firstColumn?: number
 }
 
 export type ImportIssue = {
@@ -182,20 +267,31 @@ export function toCentimetres(value: number, unit: LengthUnit): number {
 }
 
 export function toKilograms(value: number, unit: WeightUnit): number {
-  if (unit === "kg") return round4(value)
-  return round4(value * 0.45359237)
+  return round4(value * KG_PER_WEIGHT_UNIT[unit])
 }
 
 export function suggestMapping(headers: string[]): Record<string, CargoImportField> {
   const used = new Set<CargoImportField>()
   const columns: Record<string, CargoImportField> = {}
   for (const header of headers) {
-    const alias = FIELD_ALIASES[normalizeHeader(header)] ?? readDimensionHeader(header)?.field
+    const alias = aliasFor(header) ?? readDimensionHeader(header)?.field
     if (!alias || used.has(alias)) continue
     used.add(alias)
     columns[header] = alias
   }
   return columns
+}
+
+/**
+ * The field a column title stands for. Full stops are ignored ("Item no."), and a weight unit
+ * written after the words ("Gross weight kg", "Total weight (lb)") is read as the unit, not part of the name.
+ */
+function aliasFor(header: string): CargoImportField | undefined {
+  const title = normalizeHeader(header).replace(/\./g, "").replace(/\s+/g, " ").trim()
+  const direct = FIELD_ALIASES[title]
+  if (direct) return direct
+  const withoutUnit = title.replace(/\s+(?:kg|kgs|g|lb|lbs|t|mt|tonnes?)$/, "")
+  return withoutUnit !== title ? FIELD_ALIASES[withoutUnit] : undefined
 }
 
 type DimensionField = "length" | "width" | "height"
@@ -234,88 +330,43 @@ export function suggestLengthUnit(
 
 export function missingRequiredFields(columns: Record<string, CargoImportField>): CargoImportField[] {
   const chosen = new Set(Object.values(columns))
-  return REQUIRED_IMPORT_FIELDS.filter((field) => !chosen.has(field))
+  // One combined size column stands in for length, width and height; a line total can stand in for a per-piece weight.
+  const hasDimensions = chosen.has("dimensions")
+  return REQUIRED_IMPORT_FIELDS.filter((field) => {
+    if (chosen.has(field)) return false
+    if ((field === "length" || field === "width" || field === "height") && hasDimensions) return false
+    if (field === "weight" && chosen.has("lineWeight")) return false
+    return true
+  })
 }
 
-export function buildImportPreview(
-  sheet: TabularSheet,
-  mapping: ImportMapping,
-): ImportPreview {
-  const parsedMapping = importMappingSchema.parse(mapping)
-  const missing = missingRequiredFields(parsedMapping.columns)
-  if (missing.length > 0) {
-    return {
-      drafts: [],
-      issues: [
-        {
-          rowNumber: 1,
-          field: missing.join(", "),
-          message: `Map these columns before import: ${missing.join(", ")}.`,
-        },
-      ],
-    }
-  }
-
-  const columnIndex = new Map<CargoImportField, number>()
-  sheet.headers.forEach((header, index) => {
-    const field = parsedMapping.columns[header]
-    if (field && !columnIndex.has(field)) columnIndex.set(field, index)
-  })
-
-  const drafts: CargoItemInput[] = []
-  const issues: ImportIssue[] = []
-
-  sheet.rows.forEach((row, index) => {
-    if (row.every((cell) => cell.trim() === "")) return
-    const rowNumber = index + 2
-    const draft = readRow(row, rowNumber, columnIndex, parsedMapping, issues)
-    if (!draft) return
-    const validated = cargoItemInputSchema.safeParse(draft)
-    if (!validated.success) {
-      for (const issue of validated.error.issues) {
-        issues.push({
-          rowNumber,
-          field: issue.path.join(".") || "row",
-          message: issue.message,
-        })
-      }
-      return
-    }
-    drafts.push(validated.data)
-  })
-
-  return { drafts, issues }
+export type OptionalFields = {
+  quantity: string
+  shape: CargoShape
+  orientation: Orientation
+  stackable: boolean
+  bottomOnly: boolean
+  maxStackLoadKg: number | null
+  maxStackLayers: number | null
+  priority: number
+  destinationStop: number
+  consignmentId: string | null
+  segregationClass: string | null
+  color: string | null
+  allowedRotations: CargoItemInput["allowedRotations"]
 }
 
-function readRow(
-  row: string[],
+/**
+ * The columns beyond name, size, weight and quantity, read the way the importer always has: blank
+ * cells take the planner's defaults, and anything unreadable is reported against the row.
+ */
+export function readOptionalFields(
+  cell: (field: CargoImportField) => string,
   rowNumber: number,
-  columnIndex: Map<CargoImportField, number>,
-  mapping: ImportMapping,
+  weightUnit: WeightUnit,
   issues: ImportIssue[],
-): CargoItemInput | null {
-  const cell = (field: CargoImportField) => {
-    const index = columnIndex.get(field)
-    if (index === undefined) return ""
-    return row[index] ?? ""
-  }
-
-  let failed = false
-  const length = requiredLength(cell("length"), mapping.lengthUnit, rowNumber, "length", issues)
-  const width = requiredLength(cell("width"), mapping.lengthUnit, rowNumber, "width", issues)
-  const height = requiredLength(cell("height"), mapping.lengthUnit, rowNumber, "height", issues)
-  const weight = requiredNumber(cell("weight"), rowNumber, "weight", issues)
-  const sku = emptyToNull(cell("sku"))
-  const name = cell("name").trim() || sku || ""
-  if (!name) {
-    issues.push({ rowNumber, field: "name", message: "Name is required." })
-    failed = true
-  }
-  if (length === null || width === null || height === null || weight === null) failed = true
-  if (failed || length === null || width === null || height === null || weight === null) return null
-
-  const beforeOptional = issues.length
-  const quantity = optionalInt(cell("quantity"), rowNumber, "quantity", issues, 1)
+): OptionalFields | null {
+  const before = issues.length
   const priority = optionalInt(cell("priority"), rowNumber, "priority", issues, 0)
   const destinationStop = optionalInt(cell("destinationStop"), rowNumber, "destinationStop", issues, 1)
   const maxStackLoad = optionalNumber(cell("maxStackLoadKg"), rowNumber, "maxStackLoadKg", issues)
@@ -325,8 +376,7 @@ function readRow(
   const stackable = parseStackFlag(cell("stackable"), cell("notStackable"), rowNumber, issues)
   const bottomOnly = parseBottomOnly(cell("bottomOnly"), rowNumber, issues)
   if (
-    issues.length !== beforeOptional ||
-    quantity === null ||
+    issues.length !== before ||
     priority === null ||
     destinationStop === null ||
     shape === null ||
@@ -336,56 +386,21 @@ function readRow(
   ) {
     return null
   }
-
   return {
-    sku,
-    name,
-    lengthCm: length,
-    widthCm: width,
-    heightCm: height,
-    weightKg: toKilograms(weight, mapping.weightUnit),
-    quantity,
+    quantity: cell("quantity"),
     shape,
     orientation,
-    allowedRotations: orientation === "CUSTOM" ? [...AXIS_ROTATIONS] : null,
     stackable,
     bottomOnly,
-    maxStackLoadKg: maxStackLoad === null ? null : toKilograms(maxStackLoad, mapping.weightUnit),
+    maxStackLoadKg: maxStackLoad === null ? null : toKilograms(maxStackLoad, weightUnit),
     maxStackLayers,
     priority,
     destinationStop,
     consignmentId: emptyToNull(cell("consignmentId")),
     segregationClass: emptyToNull(cell("segregationClass")),
     color: emptyToNull(cell("color")),
+    allowedRotations: orientation === "CUSTOM" ? [...AXIS_ROTATIONS] : null,
   }
-}
-
-/**
- * A size cell, as centimetres. A plain number is in the mapping's unit; a unit written in the cell
- * (4 ft, 1200 mm, 5'6") is read as that unit, since it says so itself. Nothing is guessed: with no
- * unit in the cell the chosen unit applies. Thousands separators (1,200) are still accepted.
- */
-function requiredLength(raw: string, unit: LengthUnit, rowNumber: number, field: string, issues: ImportIssue[]): number | null {
-  const text = raw.trim().replace(/(\d),(?=\d{3}(?!\d))/g, "$1")
-  const parsed = parseLength(text, unit)
-  if (!parsed.ok) {
-    issues.push({ rowNumber, field, message: text === "" ? "Enter a number greater than zero." : parsed.reason })
-    return null
-  }
-  if (parsed.cm <= 0) {
-    issues.push({ rowNumber, field, message: "Enter a number greater than zero." })
-    return null
-  }
-  return parsed.cm
-}
-
-function requiredNumber(raw: string, rowNumber: number, field: string, issues: ImportIssue[]): number | null {
-  const parsed = parseNumber(raw)
-  if (parsed === null || parsed <= 0) {
-    issues.push({ rowNumber, field, message: "Enter a number greater than zero." })
-    return null
-  }
-  return parsed
 }
 
 function optionalNumber(raw: string, rowNumber: number, field: string, issues: ImportIssue[]): number | null {

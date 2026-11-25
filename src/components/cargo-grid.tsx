@@ -18,7 +18,7 @@ import {
   OrientationSelect,
   presetFor,
 } from "@/components/allowed-orientations-dialog"
-import { openCargoFilePicker } from "@/components/cargo-import-wizard"
+import { openCargoImport } from "@/components/cargo-import-wizard"
 import { ClearanceEditorDialog } from "@/components/clearance-editor"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Button } from "@/components/ui/button"
@@ -251,8 +251,8 @@ export function CargoGrid({
             <Button
               type="button"
               variant="outline"
-              onClick={openCargoFilePicker}
-              title="A photo, screenshot or PDF of the packing list is read for you. Excel and CSV also work. You can also drop the file anywhere on this page."
+              onClick={openCargoImport}
+              title="Upload an Excel, CSV, PDF or image file, paste a screenshot, or paste text. You review every line before it is added. You can also drop a file anywhere on this page."
             >
               <FileUp className="size-4" />
               Import packing list
@@ -394,7 +394,7 @@ export function CargoGrid({
           <p className="text-sm font-medium">No cargo yet</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
             {canEdit
-              ? "Drop a packing list anywhere on this page: a photo, screenshot or PDF is read for you, and Excel or CSV files are imported by column. You can also paste a screenshot, or add lines one by one."
+              ? "Import a packing list (Excel, CSV, PDF, a photo or screenshot, or pasted text), drop a file anywhere on this page, or add lines one by one. You review every line before it is added."
               : "A planner has not added cargo to this project yet."}
           </p>
           {canEdit ? (
@@ -403,7 +403,7 @@ export function CargoGrid({
                 <Plus className="size-4" />
                 Add first line
               </Button>
-              <Button type="button" variant="outline" onClick={openCargoFilePicker}>
+              <Button type="button" variant="outline" onClick={openCargoImport}>
                 <FileUp className="size-4" />
                 Import packing list
               </Button>
