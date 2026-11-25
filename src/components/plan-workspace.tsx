@@ -18,6 +18,7 @@ import { applyGravity } from "@/lib/cargo-gravity"
 import { snapToNeighbours, snapToStack } from "@/lib/cargo-snap"
 import { findFreeSpot } from "@/lib/cargo-spot"
 import { liveMetrics, type LiveMetrics } from "@/lib/plan-metrics"
+import { formatEnteredLength, formatEnteredWeight, pieceValues } from "@/lib/plan-piece-values"
 import { rotateItemFlat, tryPlaceItem } from "@/lib/cargo-skin"
 import { formatKg, formatM3, formatPct } from "@/lib/format"
 import { downloadPlanWorkbook, loadOrder } from "@/lib/plan-export"
@@ -308,6 +309,7 @@ export const PlanWorkspace = forwardRef<
               key={`${selectedIndex}-${resetKey}`}
               projectId={projectId}
               canEdit={canEdit}
+              cargo={cargo}
               unit={unit}
               unitNumber={selectedIndex + 1}
               unitCount={plan.units.length}
@@ -479,6 +481,7 @@ function UnitPicker({
 function LoadPlanDetail({
   projectId,
   canEdit,
+  cargo,
   unit,
   unitNumber,
   unitCount,
@@ -490,6 +493,8 @@ function LoadPlanDetail({
 }: {
   projectId: string
   canEdit: boolean
+  /** The cargo lines as entered in step 1, so the piece list can show the same values. */
+  cargo: CargoLine[]
   unit: PlanUnitView
   unitNumber: number
   unitCount: number
@@ -499,6 +504,7 @@ function LoadPlanDetail({
   onEditStep?: (step: "data" | "setup") => void
   onDirtyChange?: (dirty: boolean) => void
 }) {
+  const enteredCargo = useMemo(() => new Map(cargo.map((line) => [line.id, line])), [cargo])
   const [synced, setSynced] = useState(unit)
   const [items, setItems] = useState(unit.items)
   const [playground, setPlayground] = useState(false)
@@ -956,31 +962,45 @@ function LoadPlanDetail({
           <thead className="bg-muted/70 text-xs tracking-wide text-muted-foreground uppercase">
             <tr>
               <th className="px-3 py-2">#</th>
+              <th className="px-3 py-2">SKU</th>
               <th className="px-3 py-2">Name</th>
-              <th className="px-3 py-2">L</th>
-              <th className="px-3 py-2">W</th>
-              <th className="px-3 py-2">H</th>
-              <th className="px-3 py-2">kg</th>
+              <th className="px-3 py-2 normal-case">L (cm)</th>
+              <th className="px-3 py-2 normal-case">W (cm)</th>
+              <th className="px-3 py-2 normal-case">H (cm)</th>
+              <th className="px-3 py-2 normal-case">kg / piece</th>
             </tr>
           </thead>
           <tbody>
-            {loadOrder({ ...unit, items }).map((item, order) => (
+            {loadOrder({ ...unit, items }).map((item, order) => {
+              // The same values, in the same form, as the cargo table in step 1.
+              const values = pieceValues(item, enteredCargo)
+              return (
                 <tr
                   key={item.id}
                   className={cn("cursor-pointer", selectedId === item.id && "bg-secondary/70")}
                   onClick={() => setSelectedId(item.id)}
                 >
                   <td className="px-3 py-2">{order + 1}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{values.sku ?? "—"}</td>
                   <td className="px-3 py-2">
                     <span className="mr-2 inline-block size-2.5 rounded-sm" style={{ background: item.color }} />
-                    {item.name}
+                    {values.name}
+                    {values.turned ? (
+                      <span
+                        className="ml-2 rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                        title={`Loaded turned: it takes up ${formatEnteredLength(item.lengthCm)} × ${formatEnteredLength(item.widthCm)} × ${formatEnteredLength(item.heightCm)} cm in the unit`}
+                      >
+                        Turned
+                      </span>
+                    ) : null}
                   </td>
-                  <td className="px-3 py-2">{Math.round(item.lengthCm)}</td>
-                  <td className="px-3 py-2">{Math.round(item.widthCm)}</td>
-                  <td className="px-3 py-2">{Math.round(item.heightCm)}</td>
-                  <td className="px-3 py-2">{Math.round(item.weightKg)}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatEnteredLength(values.lengthCm)}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatEnteredLength(values.widthCm)}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatEnteredLength(values.heightCm)}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatEnteredWeight(values.weightKg)}</td>
                 </tr>
-              ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -1046,7 +1066,7 @@ function PlaygroundItemList({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{item.name}</span>
                   <span className="block text-xs text-muted-foreground">
-                    {Math.round(item.lengthCm)} × {Math.round(item.widthCm)} × {Math.round(item.heightCm)} cm
+                    {formatEnteredLength(item.lengthCm)} × {formatEnteredLength(item.widthCm)} × {formatEnteredLength(item.heightCm)} cm
                   </span>
                 </span>
                 <Button type="button" size="sm" className="h-7" onClick={() => onAddBack(item.id)}>
@@ -1083,7 +1103,7 @@ function PlaygroundItemList({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{item.name}</span>
                   <span className={cn("mt-0.5 block text-xs", active ? "text-neutral-700" : "text-muted-foreground")}>
-                    {Math.round(item.lengthCm)} × {Math.round(item.widthCm)} × {Math.round(item.heightCm)} cm
+                    {formatEnteredLength(item.lengthCm)} × {formatEnteredLength(item.widthCm)} × {formatEnteredLength(item.heightCm)} cm
                   </span>
                   <span className={cn("block text-xs", active ? "text-neutral-700" : "text-muted-foreground")}>
                     {formatKg(item.weightKg)}
