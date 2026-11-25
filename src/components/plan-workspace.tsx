@@ -30,6 +30,7 @@ import { applyGravity } from "@/lib/cargo-gravity"
 import { snapToNeighbours, snapToStack } from "@/lib/cargo-snap"
 import { findFreeSpot } from "@/lib/cargo-spot"
 import { liveMetrics, metricBoxesOf, type LiveMetrics } from "@/lib/plan-metrics"
+import { formatEnteredLength, formatEnteredWeight, lengthTitle, pieceValues, turnedTitle } from "@/lib/plan-piece-values"
 import { rotateItemFlat, tryPlaceItem } from "@/lib/cargo-skin"
 import { formatEnvelope, formatKg, formatM3, formatPct } from "@/lib/format"
 import { lengthCellText, LENGTH_UNIT_SYMBOL } from "@/lib/cargo-units"
@@ -693,12 +694,13 @@ export const PlanWorkspace = forwardRef<
                 setFixRequest(null)
               }}
               canEdit={canEdit}
+              cargo={cargo}
               unit={unit}
               unitNumber={selectedIndex + 1}
               unitCount={plan.units.length}
               warnings={plan.warnings}
               unloaded={plan.unloaded}
-              cargo={cargo}
+              planCurrent={!stale}
               projectDefault={clearanceCm}
               projectMinSupportPct={minSupportPct}
               layoutSource={plan.layoutSource ?? "AUTO"}
@@ -897,12 +899,13 @@ function LoadPlanDetail({
   onFixApplied,
   onDraftDiscarded,
   canEdit,
+  cargo,
   unit,
   unitNumber,
   unitCount,
   warnings,
   unloaded,
-  cargo,
+  planCurrent,
   projectDefault,
   projectMinSupportPct,
   layoutSource,
@@ -916,12 +919,15 @@ function LoadPlanDetail({
   onFixApplied: () => void
   onDraftDiscarded: () => void
   canEdit: boolean
+  /** The cargo lines as entered in step 1, so the piece list can show the same values. */
+  cargo: CargoLine[]
   unit: PlanUnitView
   unitNumber: number
   unitCount: number
   warnings: string[]
   unloaded: PlanView["unloaded"]
-  cargo: CargoLine[]
+  /** False when the saved plan is out of date: the piece list then shows what was calculated, not today's cargo list. */
+  planCurrent: boolean
   /** The project's default handling clearance now, per side in cm. */
   projectDefault: number
   projectMinSupportPct: number | null
@@ -934,6 +940,7 @@ function LoadPlanDetail({
   onEditStep?: (step: "data" | "setup") => void
   onDirtyChange?: (dirty: boolean) => void
 }) {
+  const enteredCargo = useMemo(() => new Map(cargo.map((line) => [line.id, line])), [cargo])
   const [synced, setSynced] = useState(unit)
   const [items, setItems] = useState(() => (fix ? withClearanceDraft(unit.items, fix.change, projectDefault) : unit.items))
   // A project default proposed but not saved yet (only ever comes from a draft); null when there is none.
@@ -1543,31 +1550,45 @@ function LoadPlanDetail({
           <thead className="bg-muted/70 text-xs tracking-wide text-muted-foreground uppercase">
             <tr>
               <th className="px-3 py-2">#</th>
+              <th className="px-3 py-2">SKU</th>
               <th className="px-3 py-2">Name</th>
-              <th className="px-3 py-2">L ({LENGTH_UNIT_SYMBOL[lengthUnit]})</th>
-              <th className="px-3 py-2">W ({LENGTH_UNIT_SYMBOL[lengthUnit]})</th>
-              <th className="px-3 py-2">H ({LENGTH_UNIT_SYMBOL[lengthUnit]})</th>
-              <th className="px-3 py-2">kg</th>
+              <th className="px-3 py-2 normal-case">{lengthTitle("L", lengthUnit)}</th>
+              <th className="px-3 py-2 normal-case">{lengthTitle("W", lengthUnit)}</th>
+              <th className="px-3 py-2 normal-case">{lengthTitle("H", lengthUnit)}</th>
+              <th className="px-3 py-2 normal-case">kg / piece</th>
             </tr>
           </thead>
           <tbody>
-            {loadOrder({ ...unit, items }).map((item, order) => (
+            {loadOrder({ ...unit, items }).map((item, order) => {
+              // The same values, in the same form, as the cargo table in step 1.
+              const values = pieceValues(item, enteredCargo, { planCurrent })
+              return (
                 <tr
                   key={item.id}
                   className={cn("cursor-pointer", selectedId === item.id && "bg-secondary/70")}
                   onClick={() => setSelectedId(item.id)}
                 >
                   <td className="px-3 py-2">{order + 1}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{values.sku ?? "—"}</td>
                   <td className="px-3 py-2">
                     <span className="mr-2 inline-block size-2.5 rounded-sm" style={{ background: item.color }} />
-                    {item.name}
+                    {values.name}
+                    {values.turned ? (
+                      <span
+                        className="ml-2 rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                        title={turnedTitle(item, values.facing, lengthUnit)}
+                      >
+                        Turned
+                      </span>
+                    ) : null}
                   </td>
-                  <td className="px-3 py-2">{lengthCellText(item.lengthCm, lengthUnit)}</td>
-                  <td className="px-3 py-2">{lengthCellText(item.widthCm, lengthUnit)}</td>
-                  <td className="px-3 py-2">{lengthCellText(item.heightCm, lengthUnit)}</td>
-                  <td className="px-3 py-2">{Math.round(item.weightKg)}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatEnteredLength(values.lengthCm, lengthUnit)}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatEnteredLength(values.widthCm, lengthUnit)}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatEnteredLength(values.heightCm, lengthUnit)}</td>
+                  <td className="px-3 py-2 tabular-nums">{formatEnteredWeight(values.weightKg)}</td>
                 </tr>
-              ))}
+              )
+            })}
           </tbody>
         </table>
       </div>
