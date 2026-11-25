@@ -40,6 +40,11 @@ function unit(items: PlanItemView[]): PlanUnitView {
     volumeM3: 0.96,
     volumePct: 2.9,
     floorPct: 11.54,
+    floorActualPct: 11.54,
+    floorEffectivePct: 11.54,
+    remainingKg: 27975.31,
+    remainingM3: 0,
+    tareKg: 0,
     weightPct: 0.09,
     usedLengthCm: 200,
     usedWidthCm: 80,
@@ -51,6 +56,7 @@ function unit(items: PlanItemView[]): PlanUnitView {
 }
 
 const plan: PlanView = {
+  clearanceCm: 0,
   seed: 1,
   elapsedMs: 10,
   totalCost: 0,
@@ -71,7 +77,7 @@ describe("plan export rows", () => {
   })
 
   it("summarises each unit", () => {
-    expect(summaryRows(plan)[0]).toMatchObject({ Unit: "1", Pieces: 2, "Floor used (%)": 11.5 })
+    expect(summaryRows(plan)[0]).toMatchObject({ Unit: "1", Pieces: 2, "Actual floor utilization (%)": 11.5, "Effective floor utilization (%)": 11.5 })
   })
 
   it("lists unloaded cargo with its reason", () => {

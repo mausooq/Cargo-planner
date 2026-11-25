@@ -71,6 +71,7 @@ export const UNLOADED_REASONS = [
   "SEGREGATION",
   "EQUIPMENT_RESTRICTION",
   "OUT_OF_GAUGE",
+  "CLEARANCE",
 ] as const
 export const unloadedReasonSchema = z.enum(UNLOADED_REASONS)
 export type UnloadedReason = z.infer<typeof unloadedReasonSchema>
@@ -185,6 +186,18 @@ export const cargoItemInputSchema = z
     consignmentId: z.string().trim().min(1).nullable(),
     segregationClass: z.string().trim().min(1).nullable(),
     color: z.string().trim().min(1).nullable(),
+    /** Handling clearance override for this line, per side in cm. Null or missing: use the project default. The 100 cm limit here and in the sides below is MAX_CLEARANCE_CM (a test keeps them equal). */
+    clearanceCm: z.number().nonnegative().max(100).nullable().optional(),
+    /** Directional handling clearance for this line (cm), in the orientation it was entered in. Takes the place of `clearanceCm`. */
+    clearanceSides: z
+      .object({
+        front: z.number().nonnegative().max(100),
+        rear: z.number().nonnegative().max(100),
+        left: z.number().nonnegative().max(100),
+        right: z.number().nonnegative().max(100),
+      })
+      .nullable()
+      .optional(),
   })
   .superRefine((value, ctx) => {
     if (value.orientation === "CUSTOM" && (!value.allowedRotations || value.allowedRotations.length === 0)) {

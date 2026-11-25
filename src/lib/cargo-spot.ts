@@ -1,4 +1,6 @@
+import { DEFAULT_MIN_SUPPORT_PCT } from "@compass/physics"
 import { rotateItemFlat, tryPlaceItem } from "@/lib/cargo-skin"
+import { itemSides } from "@/lib/clearance"
 import type { PlanItemView, PlanUnitView } from "@/lib/plan-view"
 
 const GRID_CM = 10
@@ -21,13 +23,30 @@ function better(a: PlanItemView, b: PlanItemView): boolean {
   return a.y < b.y
 }
 
-function searchSpot(item: PlanItemView, items: PlanItemView[], unit: PlanUnitView): PlanItemView | null {
-  const xs = candidateStarts(item.lengthCm, unit.lengthCm, items.flatMap((other) => [other.x, other.x + other.lengthCm]))
-  const ys = candidateStarts(item.widthCm, unit.widthCm, items.flatMap((other) => [other.y, other.y + other.widthCm]))
+function searchSpot(item: PlanItemView, items: PlanItemView[], unit: PlanUnitView, minSupportRatio: number): PlanItemView | null {
+  // Handling clearance: try the spots exactly one allowance away from walls and neighbours, so a
+  // piece with an allowance is offered the tight, valid spot and not only the coarse grid ones.
+  const own = itemSides(item)
+  const xs = candidateStarts(item.lengthCm, unit.lengthCm, [
+    own.x0,
+    unit.lengthCm - own.x1,
+    ...items.flatMap((other) => {
+      const theirs = itemSides(other)
+      return [other.x + other.lengthCm + Math.max(own.x0, theirs.x1), other.x - Math.max(own.x1, theirs.x0)]
+    }),
+  ])
+  const ys = candidateStarts(item.widthCm, unit.widthCm, [
+    own.y0,
+    unit.widthCm - own.y1,
+    ...items.flatMap((other) => {
+      const theirs = itemSides(other)
+      return [other.y + other.widthCm + Math.max(own.y0, theirs.y1), other.y - Math.max(own.y1, theirs.y0)]
+    }),
+  ])
   let best: PlanItemView | null = null
   for (const x of xs) {
     for (const y of ys) {
-      const placed = tryPlaceItem({ ...item, x, y, z: 0 }, items, unit)
+      const placed = tryPlaceItem({ ...item, x, y, z: 0 }, items, unit, minSupportRatio)
       if (placed && (!best || better(placed, best))) best = placed
     }
   }
@@ -40,10 +59,15 @@ function searchSpot(item: PlanItemView, items: PlanItemView[], unit: PlanUnitVie
  * Every candidate goes through the same physics checks as a drag (support, collisions,
  * stacking limits, ULD contour). Returns null when there is no room anywhere.
  */
-export function findFreeSpot(item: PlanItemView, items: PlanItemView[], unit: PlanUnitView): PlanItemView | null {
+export function findFreeSpot(
+  item: PlanItemView,
+  items: PlanItemView[],
+  unit: PlanUnitView,
+  minSupportRatio: number = DEFAULT_MIN_SUPPORT_PCT / 100,
+): PlanItemView | null {
   // The original spot only counts if the piece lands exactly as it was; if something has moved in
   // underneath, it would end up perched on that instead, so look for a proper free spot.
-  const original = tryPlaceItem(item, items, unit)
+  const original = tryPlaceItem(item, items, unit, minSupportRatio)
   if (
     original &&
     Math.abs(original.x - item.x) < 0.5 &&
@@ -52,5 +76,8 @@ export function findFreeSpot(item: PlanItemView, items: PlanItemView[], unit: Pl
   ) {
     return original
   }
-  return searchSpot(item, items, unit) ?? (item.shape === "BOX" ? searchSpot(rotateItemFlat(item), items, unit) : null)
+  return (
+    searchSpot(item, items, unit, minSupportRatio) ??
+    (item.shape === "BOX" ? searchSpot(rotateItemFlat(item), items, unit, minSupportRatio) : null)
+  )
 }

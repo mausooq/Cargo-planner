@@ -1,10 +1,12 @@
 import { cargoShapeSchema, equipmentModeSchema, oogClassSchema } from "@compass/domain"
+import { cargoSetting, parseClearanceConfig, settingToCargoFields } from "@/lib/clearance"
 import { cargoColor } from "@/lib/format"
-import type { PlanUnitView, PlanView } from "@/lib/plan-view"
+import { clearanceFields, type PlanUnitView, type PlanView } from "@/lib/plan-view"
 import { parseContour, resolveEquipmentContour } from "@/lib/uld-contour"
 
 type DbPlan = {
   seed: number
+  settings?: unknown
   summary: unknown
   instances: {
     sequence: number
@@ -21,6 +23,7 @@ type DbPlan = {
       innerWidthCm: number
       innerHeightCm: number
       maxPayloadKg: number
+      tareKg?: number
     }
     placements: {
       cargoItemId: string
@@ -40,6 +43,8 @@ type DbPlan = {
         shape: string
         stackable?: boolean
         bottomOnly?: boolean
+        maxStackLoadKg?: number | null
+        customFields?: unknown
       }
     }[]
   }[]
@@ -51,9 +56,21 @@ type DbPlan = {
   }[]
 }
 
-export function planFromDb(plan: DbPlan): PlanView {
+/**
+ * `current` is the project's configuration now. Pieces take their clearance from it, so the layout
+ * is always judged against the settings in force today; the plan itself still records the settings
+ * it was calculated under (`clearanceCm`, `clearanceConfig`). Without it, the plan's own are used.
+ */
+export function planFromDb(plan: DbPlan, current?: { clearanceCm?: number }): PlanView {
   const summary = asRecord(plan.summary)
+  // The allowance the plan was calculated with. A project default changed later marks the plan stale.
+  const settings = asRecord(plan.settings)
+  const clearanceCm = numberOf(settings.clearanceCm, 0)
+  const itemDefault = current?.clearanceCm ?? clearanceCm
   return {
+    clearanceCm,
+    clearanceConfig: parseClearanceConfig(settings.clearanceConfig),
+    layoutSource: settings.layoutSource === "MANUAL" ? "MANUAL" : "AUTO",
     seed: plan.seed,
     elapsedMs: numberOf(summary.elapsedMs, 0),
     totalCost: numberOf(summary.totalCost, 0),
@@ -61,7 +78,7 @@ export function planFromDb(plan: DbPlan): PlanView {
     units: plan.instances
       .slice()
       .sort((a, b) => a.sequence - b.sequence)
-      .map((instance, index) => unitFromInstance(instance, index)),
+      .map((instance, index) => unitFromInstance(instance, index, itemDefault)),
     unloaded: plan.unloaded.map((row) => ({
       cargoId: row.cargoItemId,
       name: row.cargoItem.name,
@@ -71,7 +88,7 @@ export function planFromDb(plan: DbPlan): PlanView {
   }
 }
 
-function unitFromInstance(instance: DbPlan["instances"][number], index: number): PlanUnitView {
+function unitFromInstance(instance: DbPlan["instances"][number], index: number, defaultClearance: number): PlanUnitView {
   const metrics = asRecord(instance.metrics)
   const cog = asRecord(metrics.cog)
   const axleLoads = Array.isArray(metrics.axleLoads) ? metrics.axleLoads : []
@@ -96,8 +113,19 @@ function unitFromInstance(instance: DbPlan["instances"][number], index: number):
     grossKg: numberOf(metrics.grossKg, 0),
     volumeM3: numberOf(metrics.volumeM3, 0),
     volumePct: numberOf(metrics.volumePct, 0),
-    floorPct: numberOf(metrics.floorPct, 0),
+    // Plans saved before the two floor metrics only stored `floorPct`, which was the actual figure.
+    // With no allowance the effective figure equals it, so old plans stay correct.
+    floorPct: numberOf(metrics.floorActualPct, numberOf(metrics.floorPct, 0)),
+    floorActualPct: numberOf(metrics.floorActualPct, numberOf(metrics.floorPct, 0)),
+    floorEffectivePct: numberOf(metrics.floorEffectivePct, numberOf(metrics.floorActualPct, numberOf(metrics.floorPct, 0))),
     weightPct: numberOf(metrics.weightPct, 0),
+    remainingKg: numberOf(metrics.remainingKg, instance.equipmentType.maxPayloadKg - numberOf(metrics.netKg, 0)),
+    remainingM3: numberOf(
+      metrics.remainingM3,
+      (instance.equipmentType.innerLengthCm * instance.equipmentType.innerWidthCm * instance.equipmentType.innerHeightCm) / 1_000_000 -
+        numberOf(metrics.volumeM3, 0),
+    ),
+    tareKg: Math.round((numberOf(metrics.grossKg, 0) - numberOf(metrics.netKg, 0)) * 10) / 10,
     usedLengthCm: numberOf(metrics.usedLengthCm, 0),
     usedWidthCm: numberOf(metrics.usedWidthCm, 0),
     usedHeightCm: numberOf(metrics.usedHeightCm, 0),
@@ -138,6 +166,8 @@ function unitFromInstance(instance: DbPlan["instances"][number], index: number):
         : "BOX",
       stackable: placement.cargoItem.stackable,
       bottomOnly: placement.cargoItem.bottomOnly,
+      maxStackLoadKg: placement.cargoItem.maxStackLoadKg ?? null,
+      ...clearanceFields(settingToCargoFields(cargoSetting(placement.cargoItem.customFields)), defaultClearance),
     })),
   }
 }
@@ -150,3 +180,4 @@ function asRecord(value: unknown): Record<string, unknown> {
 function numberOf(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback
 }
+

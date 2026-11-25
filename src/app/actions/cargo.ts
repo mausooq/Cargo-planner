@@ -9,6 +9,8 @@ import { cargoPreset } from "@/lib/cargo-defaults"
 import { documentKind, MAX_DOCUMENT_BYTES, MAX_IMAGE_BYTES, type ExtractedCargo } from "@/lib/cargo-extract"
 import { readCargoDocument } from "@/lib/cargo-extract-server"
 import { importMappingSchema, MAX_IMPORT_ROWS, type TabularSheet } from "@/lib/cargo-import"
+import { normaliseSides } from "@compass/physics"
+import { cleanSetting, normaliseOverride, settingToJson } from "@/lib/clearance"
 import { editorOrError } from "@/lib/editor"
 import { prisma } from "@/lib/prisma"
 
@@ -229,7 +231,7 @@ function cargoData(projectId: string, input: CargoItemInput) {
     quantity: input.quantity,
     shape: input.shape,
     orientation: input.orientation,
-    customFields: rotationsJson(input),
+    customFields: extrasJson(input),
     stackable: input.stackable,
     bottomOnly: input.bottomOnly,
     maxStackLoadKg: input.maxStackLoadKg,
@@ -242,10 +244,14 @@ function cargoData(projectId: string, input: CargoItemInput) {
   }
 }
 
-function rotationsJson(input: CargoItemInput): Prisma.InputJsonValue | typeof Prisma.DbNull {
+/** Per-line extras kept in the existing `customFields` JSON column (no migration): rotations and clearance. */
+function extrasJson(input: CargoItemInput): Prisma.InputJsonValue | typeof Prisma.DbNull {
   const allowed = input.orientation === "CUSTOM" ? formatAllowedRotations(input.allowedRotations) : null
-  if (!allowed) return Prisma.DbNull
-  return { allowedRotations: allowed }
+  // Directional values win over a uniform one; neither means the line inherits the project default.
+  const clearance = cleanSetting(normaliseSides(input.clearanceSides) ?? normaliseOverride(input.clearanceCm))
+  const stored = settingToJson(clearance)
+  if (!allowed && Object.keys(stored).length === 0) return Prisma.DbNull
+  return { ...(allowed ? { allowedRotations: allowed } : {}), ...stored }
 }
 
 function mappingJson(mapping: z.infer<typeof importMappingSchema>): Prisma.InputJsonObject {

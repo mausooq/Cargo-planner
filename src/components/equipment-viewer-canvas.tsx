@@ -4,6 +4,7 @@ import { Edges, Instance, Instances, OrbitControls } from "@react-three/drei"
 import { Canvas, useThree } from "@react-three/fiber"
 import { Suspense, useEffect, useMemo, useState } from "react"
 import { DimensionMarks } from "@/components/dimension-marks"
+import { useLengthUnit } from "@/lib/length-unit-pref"
 import { AirContourMesh, AirPalletMesh } from "@/components/equipment-hull"
 import type { EquipmentListItem } from "@/lib/equipment-catalog"
 import { visualKind, type VisualKind } from "@/lib/equipment-shape"
@@ -29,6 +30,7 @@ export type ViewerItem = Pick<
 type ViewPreset = "iso" | "front" | "side" | "top"
 
 export function EquipmentScene({ item }: { item: ViewerItem }) {
+  const lengthUnit = useLengthUnit()
   const [preset, setPreset] = useState<ViewPreset>("iso")
   const [resetToken, setResetToken] = useState(0)
   const [labels, setLabels] = useState(true)
@@ -111,6 +113,7 @@ export function EquipmentScene({ item }: { item: ViewerItem }) {
                   baseY={deckY}
                   volumeM3={volumeM3}
                   contour={contour}
+                  unit={lengthUnit}
                 />
               </Suspense>
             ) : null}

@@ -52,7 +52,8 @@ describe("support polygon and stability", () => {
   it("is stable when the CoG lies exactly on the support edge and area is 70%", () => {
     const upper = boxBody("top", 0, 0, 50, 100, 100, 40, 400)
     const lower = boxBody("base", 0, 0, 0, 70, 100, 50, 400)
-    const result = supportFrom(upper, [lower], world)
+    // The threshold is stated here: this checks the geometry at exactly 70%, not what the default is.
+    const result = supportFrom(upper, [lower], { ...world, minSupportRatio: 0.7 })
     expect(result.areaRatio).toBeCloseTo(0.7, 5)
     expect(pointInPolygon({ x: 50, y: 50 }, result.polygon, 0.1)).toBe(true)
     expect(result.cogInside).toBe(true)

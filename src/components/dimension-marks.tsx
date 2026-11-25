@@ -1,6 +1,7 @@
 "use client"
 
 import { Billboard, Line, Text } from "@react-three/drei"
+import { formatLengthIn, type LengthUnit } from "@/lib/cargo-units"
 import { DIMENSION_COLORS } from "@/lib/format"
 import type { UldContour } from "@/lib/uld-contour"
 
@@ -15,6 +16,7 @@ export function DimensionMarks({
   showHeight = true,
   volumeM3,
   contour,
+  unit = "cm",
 }: {
   length: number
   width: number
@@ -26,7 +28,10 @@ export function DimensionMarks({
   showHeight?: boolean
   volumeM3?: number
   contour?: UldContour | null
+  /** The length unit labels are written in. Sizes are stored and drawn in centimetres whatever this is. */
+  unit?: LengthUnit
 }) {
+  const fmt = (cm: number) => (unit === "cm" ? roundCm(cm) : formatLengthIn(cm, unit))
   const offset = Math.max(0.12, Math.min(length, width, height) * 0.08)
   const tick = Math.max(0.04, offset * 0.22)
   const font = Math.min(0.16, Math.max(0.075, Math.min(length, width) * 0.028))
@@ -49,7 +54,7 @@ export function DimensionMarks({
         end={[length, y, width]}
         outward={[0, 0, offset]}
         tick={tick}
-        label={`Length = ${roundCm(lengthCm)}`}
+        label={`Length = ${fmt(lengthCm)}`}
         color={DIMENSION_COLORS.length}
         fontSize={font}
       />
@@ -58,7 +63,7 @@ export function DimensionMarks({
         end={[0, y, width]}
         outward={[-offset, 0, 0]}
         tick={tick}
-        label={`Width = ${roundCm(widthCm)}`}
+        label={`Width = ${fmt(widthCm)}`}
         color={DIMENSION_COLORS.width}
         fontSize={font}
       />
@@ -68,7 +73,7 @@ export function DimensionMarks({
           end={[heightX, y + height, width]}
           outward={[offset, 0, 0]}
           tick={tick}
-          label={`Height = ${roundCm(heightCm)}`}
+          label={`Height = ${fmt(heightCm)}`}
           color={DIMENSION_COLORS.height}
           fontSize={font}
         />
@@ -79,7 +84,7 @@ export function DimensionMarks({
           end={[0, y, rightW]}
           outward={[-offset * 0.35, 0, 0]}
           tick={tick}
-          label={roundCm((contour?.bottomRight.lengthMm ?? 0) / 10)}
+          label={fmt((contour?.bottomRight.lengthMm ?? 0) / 10)}
           color="#0f5c4c"
           fontSize={font * 0.9}
         />
@@ -90,7 +95,7 @@ export function DimensionMarks({
           end={[0, y + rightH, 0]}
           outward={[0, 0, -offset * 0.45]}
           tick={tick}
-          label={roundCm((contour?.bottomRight.heightMm ?? 0) / 10)}
+          label={fmt((contour?.bottomRight.heightMm ?? 0) / 10)}
           color="#0f5c4c"
           fontSize={font * 0.9}
         />
@@ -104,7 +109,7 @@ export function DimensionMarks({
           end={[0, y, width]}
           outward={[-offset * 0.35, 0, 0]}
           tick={tick}
-          label={roundCm((contour?.bottomLeft.lengthMm ?? 0) / 10)}
+          label={fmt((contour?.bottomLeft.lengthMm ?? 0) / 10)}
           color="#0f5c4c"
           fontSize={font * 0.9}
         />
@@ -115,7 +120,7 @@ export function DimensionMarks({
           end={[0, y + leftH, width]}
           outward={[0, 0, offset * 0.45]}
           tick={tick}
-          label={roundCm((contour?.bottomLeft.heightMm ?? 0) / 10)}
+          label={fmt((contour?.bottomLeft.heightMm ?? 0) / 10)}
           color="#0f5c4c"
           fontSize={font * 0.9}
         />
@@ -126,7 +131,7 @@ export function DimensionMarks({
           end={[topLeftL, y + height, width]}
           outward={[0, offset * 0.35, 0]}
           tick={tick}
-          label={roundCm((contour?.topLeft.lengthMm ?? 0) / 10)}
+          label={fmt((contour?.topLeft.lengthMm ?? 0) / 10)}
           color="#0f5c4c"
           fontSize={font * 0.9}
         />
@@ -137,7 +142,7 @@ export function DimensionMarks({
           end={[0, y + height, width]}
           outward={[-offset * 0.45, 0, 0]}
           tick={tick}
-          label={roundCm((contour?.topLeft.heightMm ?? 0) / 10)}
+          label={fmt((contour?.topLeft.heightMm ?? 0) / 10)}
           color="#0f5c4c"
           fontSize={font * 0.9}
         />
@@ -151,7 +156,7 @@ export function DimensionMarks({
           end={[length, y + height, width]}
           outward={[0, offset * 0.35, 0]}
           tick={tick}
-          label={roundCm((contour?.topRight.lengthMm ?? 0) / 10)}
+          label={fmt((contour?.topRight.lengthMm ?? 0) / 10)}
           color="#0f5c4c"
           fontSize={font * 0.9}
         />
@@ -162,7 +167,7 @@ export function DimensionMarks({
           end={[length, y + height, width]}
           outward={[offset * 0.45, 0, 0]}
           tick={tick}
-          label={roundCm((contour?.topRight.heightMm ?? 0) / 10)}
+          label={fmt((contour?.topRight.heightMm ?? 0) / 10)}
           color="#0f5c4c"
           fontSize={font * 0.9}
         />

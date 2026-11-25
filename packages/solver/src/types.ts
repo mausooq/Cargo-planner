@@ -66,6 +66,18 @@ export type SolverCargo = {
   consignmentId: string | null
   segregationClass: string | null
   color: string | null
+  /**
+   * Handling clearance kept free around this piece, per side, in cm. Overrides the project default
+   * (`SolverSettings.clearanceCm`) when set. Operational spacing only: packaging that is already
+   * inside the entered dimensions must not be added again.
+   */
+  clearanceCm?: number | null
+  /**
+   * Directional handling clearance for this piece (front, rear, left, right in cm), in the
+   * orientation it was entered in. It turns with the piece. When set it takes the place of
+   * `clearanceCm` for this line.
+   */
+  clearanceSides?: { front: number; rear: number; left: number; right: number } | null
 }
 
 export type SolverSettings = {
@@ -83,6 +95,8 @@ export type SolverSettings = {
   keepConsignmentsTogether: boolean
   /** Pairs of segregation classes that may not share a unit. */
   segregation: [string, string][]
+  /** Project default handling clearance per side, in cm. Zero keeps the previous behaviour. */
+  clearanceCm: number
 }
 
 export type SolverInput = {
@@ -120,8 +134,17 @@ export type UnitMetrics = {
   grossKg: number
   volumeM3: number
   volumePct: number
+  /** Same as `floorActualPct`. Kept so plans saved before the two floor metrics still read. */
   floorPct: number
+  /** Floor covered by the pieces' own footprints, overlaps counted once. */
+  floorActualPct: number
+  /** Floor needed once each piece's handling clearance is added, overlaps counted once. */
+  floorEffectivePct: number
   weightPct: number
+  /** Payload left, in kg. Negative when over the limit. */
+  remainingKg: number
+  /** Volume left, in m³. */
+  remainingM3: number
   usedLengthCm: number
   usedWidthCm: number
   usedHeightCm: number
@@ -146,6 +169,7 @@ export type UnloadedReason =
   | "SEGREGATION"
   | "EQUIPMENT_RESTRICTION"
   | "OUT_OF_GAUGE"
+  | "CLEARANCE"
 
 export type UnloadedItem = {
   cargoId: string

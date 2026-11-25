@@ -1,0 +1,305 @@
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
+vi.mock("@/lib/session", () => ({ requireUser: vi.fn() }))
+vi.mock("@/lib/prisma", () => ({
+  prisma: {
+    project: { findFirst: vi.fn() },
+    equipmentInstance: { update: vi.fn((args: unknown) => ({ kind: "instance", args })) },
+    placement: { updateMany: vi.fn((args: unknown) => ({ kind: "placement", args })) },
+    plan: { update: vi.fn((args: unknown) => ({ kind: "plan", args })) },
+    $transaction: vi.fn(async (writes: unknown[]) => writes),
+  },
+}))
+
+import { savePlanLayout } from "@/app/actions/plan"
+import { planFromDb } from "@/lib/plan-from-db"
+import { prisma } from "@/lib/prisma"
+import { requireUser } from "@/lib/session"
+
+const requireUserMock = vi.mocked(requireUser)
+const db = vi.mocked(prisma, true)
+
+function user(role: "ADMIN" | "PLANNER" | "VIEWER" = "PLANNER") {
+  return { id: "u1", role, orgId: "org-1", orgName: "Compass", name: "Demo", email: "planner@compass.local" }
+}
+
+const equipment = {
+  id: "eq1",
+  name: "Test trailer",
+  mode: "ROAD",
+  oogClass: "NONE",
+  heightOpen: false,
+  contour: null,
+  innerLengthCm: 500,
+  innerWidthCm: 240,
+  innerHeightCm: 250,
+  maxPayloadKg: 1000,
+  tareKg: 100,
+  axleGroups: [
+    { name: "Front", positionFromFrontCm: 0, maxKg: 400 },
+    { name: "Rear", positionFromFrontCm: 500, maxKg: 900 },
+  ],
+}
+
+function cargoItem(extra: Record<string, unknown> = {}) {
+  return {
+    name: "Crate",
+    sku: null,
+    weightKg: 100,
+    color: null,
+    shape: "BOX",
+    stackable: true,
+    bottomOnly: false,
+    maxStackLoadKg: null,
+    customFields: null,
+    lengthCm: 100,
+    widthCm: 100,
+    heightCm: 100,
+    orientation: "ROTATE_90",
+    ...extra,
+  }
+}
+
+function placement(cargoItemId: string, instanceIndex: number, x: number, y: number, z: number, extra: Record<string, unknown> = {}, item = cargoItem()) {
+  return { cargoItemId, instanceIndex, xCm: x, yCm: y, zCm: z, lengthCm: 100, widthCm: 100, heightCm: 100, rotation: "LWH", cargoItem: item, ...extra }
+}
+
+/** One unit with two crates side by side. `settings` and `warnings` mimic what the solver saved. */
+function savedPlan(options: { clearanceCm?: number; warnings?: string[]; second?: [number, number, number] } = {}) {
+  const [x2, y2, z2] = options.second ?? [200, 0, 0]
+  return {
+    id: "plan1",
+    createdAt: new Date("2026-11-01"),
+    seed: 1,
+    settings: options.clearanceCm === undefined ? {} : { clearanceCm: options.clearanceCm },
+    summary: { totalCost: 0, elapsedMs: 5, restartsRun: 3, warnings: options.warnings ?? [] },
+    unloaded: [],
+    instances: [
+      {
+        id: "inst1",
+        sequence: 1,
+        equipmentTypeId: "eq1",
+        // Deliberately stale numbers: the save must replace them.
+        metrics: { netKg: 200, grossKg: 300, volumeM3: 2, volumePct: 1.7, floorPct: 99, weightPct: 20, axleLoads: [] },
+        equipmentType: equipment,
+        placements: [placement("c1", 0, 0, 0, 0), placement("c2", 0, x2, y2, z2)],
+      },
+    ],
+  }
+}
+
+function sentRow(cargoId: string, x: number, y: number, z: number, extra: Record<string, unknown> = {}) {
+  return { cargoId, instanceIndex: 0, x, y, z, lengthCm: 100, widthCm: 100, heightCm: 100, rotation: "LWH", ...extra }
+}
+
+function mockProject(plan: ReturnType<typeof savedPlan>) {
+  db.project.findFirst.mockResolvedValue({ id: "p1", plans: [plan] } as never)
+}
+
+type Write = { kind: string; args: { where?: Record<string, unknown>; data: Record<string, unknown> } }
+function writesOf(kind: string): Write[] {
+  const call = db.$transaction.mock.calls[0]?.[0] as unknown as Write[] | undefined
+  return (call ?? []).filter((write) => write.kind === kind)
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  requireUserMock.mockResolvedValue(user() as never)
+})
+
+describe("savePlanLayout", () => {
+  it("recalculates and stores every metric from the saved positions", async () => {
+    mockProject(savedPlan({ warnings: ["Unit 1: Front is over its limit.", "1 piece(s) do not fit in the selected container."] }))
+    const result = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 300, 50, 0)])
+    expect(result.ok).toBe(true)
+
+    const [instance] = writesOf("instance")
+    const metrics = instance!.args.data.metrics as Record<string, number | string[]>
+    expect(metrics).toMatchObject({
+      pieces: 2,
+      netKg: 200,
+      grossKg: 300,
+      weightPct: 20,
+      remainingKg: 800,
+      volumeM3: 2,
+      remainingM3: 28,
+      // 2 pieces of 100 x 100 on a 500 x 240 floor, exact (no grid).
+      floorPct: 16.7,
+      floorActualPct: 16.7,
+      floorEffectivePct: 16.7,
+    })
+    expect((metrics.cog as unknown as { x: number }).x).toBe(200)
+    expect(Array.isArray(metrics.axleLoads)).toBe(true)
+    expect(Array.isArray(metrics.warnings)).toBe(true)
+  })
+
+  it("writes the exact positions the planner chose and never re-packs", async () => {
+    mockProject(savedPlan())
+    await savePlanLayout("p1", [sentRow("c1", 17.3, 3.9, 0), sentRow("c2", 333.3, 120.1, 0)])
+    const rows = writesOf("placement")
+    expect(rows.map((row) => [row.args.where?.cargoItemId, row.args.data.xCm, row.args.data.yCm, row.args.data.zCm])).toEqual([
+      ["c1", 17.3, 3.9, 0],
+      ["c2", 333.3, 120.1, 0],
+    ])
+  })
+
+  it("updates the metrics after a move, a turn, a stack and a move back", async () => {
+    // Moving the second crate onto the first stacks it: floor use halves, volume stays.
+    mockProject(savedPlan())
+    await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 0, 0, 100)])
+    const stacked = writesOf("instance")[0]!.args.data.metrics as Record<string, number>
+    expect(stacked.floorActualPct).toBe(8.3)
+    expect(stacked.volumeM3).toBe(2)
+    expect(stacked.cog).toMatchObject({ z: 100 })
+
+    // Turning a 120 x 80 crate changes its footprint, so floor use follows the new sides.
+    vi.clearAllMocks()
+    requireUserMock.mockResolvedValue(user() as never)
+    const plan = savedPlan()
+    plan.instances[0]!.placements[0] = placement("c1", 0, 0, 0, 0, { lengthCm: 120, widthCm: 80, heightCm: 100 }, cargoItem({ lengthCm: 120, widthCm: 80 }))
+    plan.instances[0]!.placements[1] = placement("c2", 0, 200, 0, 0)
+    mockProject(plan)
+    await savePlanLayout("p1", [sentRow("c1", 0, 0, 0, { lengthCm: 80, widthCm: 120, rotation: "WLH" }), sentRow("c2", 200, 0, 0)])
+    const turned = writesOf("instance")[0]!.args.data.metrics as Record<string, number>
+    expect(turned.floorActualPct).toBe(16.3) // (80 x 120 + 100 x 100) / (500 x 240)
+  })
+
+  it("stores the effective floor use with the project allowance, and a different one when positions change", async () => {
+    mockProject(savedPlan({ clearanceCm: 10 }))
+    await savePlanLayout("p1", [sentRow("c1", 10, 10, 0), sentRow("c2", 120, 10, 0)])
+    const near = writesOf("instance")[0]!.args.data.metrics as Record<string, number>
+    expect(near.floorActualPct).toBe(16.7)
+    expect(near.floorEffectivePct).toBe(23) // one merged 230 x 120 block: the 10 cm gap is shared, not counted twice
+
+    vi.clearAllMocks()
+    requireUserMock.mockResolvedValue(user() as never)
+    mockProject(savedPlan({ clearanceCm: 10 }))
+    await savePlanLayout("p1", [sentRow("c1", 10, 10, 0), sentRow("c2", 300, 100, 0)])
+    const apart = writesOf("instance")[0]!.args.data.metrics as Record<string, number>
+    expect(apart.floorEffectivePct).toBe(24) // two separate 120 x 120 blocks, nothing shared
+  })
+
+  it("refuses a layout that breaks the handling clearance and writes nothing", async () => {
+    mockProject(savedPlan({ clearanceCm: 10 }))
+    const result = await savePlanLayout("p1", [sentRow("c1", 10, 10, 0), sentRow("c2", 115, 10, 0)])
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/clearance/i)
+    expect(db.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("refuses a piece outside the unit, a floating piece and a forbidden turn", async () => {
+    mockProject(savedPlan())
+    const outside = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 450, 0, 0)])
+    expect(outside.ok).toBe(false)
+    const floating = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 300, 0, 60)])
+    expect(floating.ok).toBe(false)
+    const badTurn = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 300, 0, 0, { lengthCm: 100, widthCm: 100, heightCm: 130 })])
+    expect(badTurn.ok).toBe(false)
+    expect(db.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("refuses an incomplete layout instead of dropping pieces from the plan", async () => {
+    mockProject(savedPlan())
+    const result = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0)])
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/missing 1 piece/)
+    expect(db.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("refuses cargo that is not on the plan, duplicates and invalid numbers", async () => {
+    mockProject(savedPlan())
+    expect((await savePlanLayout("p1", [sentRow("zzz", 0, 0, 0)])).ok).toBe(false)
+    expect((await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c1", 100, 0, 0)])).ok).toBe(false)
+    expect((await savePlanLayout("p1", [sentRow("c1", Number.NaN, 0, 0), sentRow("c2", 300, 0, 0)])).ok).toBe(false)
+    expect((await savePlanLayout("p1", [sentRow("c1", 0, 0, 0, { lengthCm: 0 }), sentRow("c2", 300, 0, 0)])).ok).toBe(false)
+    expect(db.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("refreshes the plan's axle warnings and keeps the packer's other notes", async () => {
+    mockProject(savedPlan({ warnings: ["Unit 1: Front is over its limit.", "1 piece(s) do not fit in the selected container."] }))
+    const result = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 300, 50, 0)])
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.planWarnings).toEqual(["1 piece(s) do not fit in the selected container."])
+    const [plan] = writesOf("plan")
+    expect((plan!.args.data.summary as { warnings: string[]; elapsedMs: number }).elapsedMs).toBe(5)
+  })
+
+  it("reports an overload as a warning, not a refusal, and raises the axle line", async () => {
+    const plan = savedPlan()
+    plan.instances[0]!.placements = [
+      placement("c1", 0, 0, 0, 0, {}, cargoItem({ weightKg: 600 })),
+      placement("c2", 0, 120, 0, 0, {}, cargoItem({ weightKg: 600 })),
+    ]
+    mockProject(plan)
+    const result = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 120, 0, 0)])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const metrics = writesOf("instance")[0]!.args.data.metrics as { remainingKg: number; warnings: string[] }
+    expect(metrics.remainingKg).toBe(-200)
+    expect(metrics.warnings[0]).toMatch(/Over the payload limit by 200 kg/)
+    expect(result.planWarnings.some((line) => /Front is over its limit/.test(line))).toBe(true)
+  })
+
+  it("returns the recalculated numbers so the screens update without a reload", async () => {
+    mockProject(savedPlan())
+    const result = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 300, 50, 0)])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.units).toHaveLength(1)
+    expect(result.units[0]).toMatchObject({ unitIndex: 0, metrics: { floorActualPct: 16.7, remainingKg: 800 } })
+  })
+
+  it("lets only planners and admins save", async () => {
+    requireUserMock.mockResolvedValue(user("VIEWER") as never)
+    const result = await savePlanLayout("p1", [])
+    expect(result.ok).toBe(false)
+    expect(db.project.findFirst).not.toHaveBeenCalled()
+  })
+
+  it("refuses a project from another organization or without a plan", async () => {
+    db.project.findFirst.mockResolvedValue(null as never)
+    expect((await savePlanLayout("p1", [])).ok).toBe(false)
+    db.project.findFirst.mockResolvedValue({ id: "p1", plans: [] } as never)
+    const none = await savePlanLayout("p1", [])
+    expect(none.ok).toBe(false)
+    if (!none.ok) expect(none.error).toMatch(/Calculate a load plan/)
+  })
+
+  it("does not block an untouched, already-invalid piece from an older plan", async () => {
+    // An older plan with a crate left floating: moving the other crate must still save.
+    mockProject(savedPlan({ second: [300, 0, 40] }))
+    const legacy = placement("c2", 0, 300, 0, 40)
+    expect(legacy.zCm).toBe(40)
+    const result = await savePlanLayout("p1", [
+      { ...sentRow("c1", 0, 0, 0), x: 10 },
+      { ...sentRow("c2", 300, 0, 40) },
+    ])
+    expect(result.ok).toBe(true)
+  })
+
+  it("reloading the saved plan shows the saved metrics, not the old ones", async () => {
+    const plan = savedPlan({ clearanceCm: 10 })
+    mockProject(plan)
+    await savePlanLayout("p1", [sentRow("c1", 10, 10, 0), sentRow("c2", 120, 10, 0)])
+    const saved = writesOf("instance")[0]!.args.data.metrics
+    const placements = writesOf("placement").map((row) => row.args.data)
+
+    // What the database now holds: the new metrics and positions.
+    const reloaded = structuredClone(plan)
+    reloaded.instances[0]!.metrics = saved as never
+    reloaded.instances[0]!.placements = reloaded.instances[0]!.placements.map((row, index) => ({
+      ...row,
+      xCm: placements[index]!.xCm as number,
+      yCm: placements[index]!.yCm as number,
+    }))
+    const view = planFromDb(reloaded as never)
+    const unit = view.units[0]!
+    expect(unit.floorActualPct).toBe(16.7)
+    expect(unit.floorEffectivePct).toBe(23)
+    expect(unit.floorPct).toBe(16.7)
+    expect(unit.remainingKg).toBe(800)
+    expect(unit.items.map((item) => [item.x, item.y])).toEqual([[10, 10], [120, 10]])
+    expect(unit.floorPct).not.toBe(99) // the stale value that was stored before the save
+  })
+})

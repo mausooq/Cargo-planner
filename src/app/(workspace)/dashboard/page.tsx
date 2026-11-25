@@ -4,6 +4,8 @@ import { canDeleteProjects, canEditProjects, roleSchema } from "@compass/domain"
 import { ProjectCreateForm } from "@/components/project-create-form"
 import { ProjectFolderList, type ProjectFolder } from "@/components/project-folder-list"
 import { prisma } from "@/lib/prisma"
+import { projectClearance } from "@/lib/clearance"
+import { isPlanStale } from "@/lib/plan-staleness"
 import { projectStatus } from "@/lib/project-status"
 import { requireUser } from "@/lib/session"
 
@@ -20,12 +22,12 @@ export default async function DashboardPage() {
     where: { orgId: user.orgId },
     orderBy: { updatedAt: "desc" },
     include: {
-      cargoItems: { select: { quantity: true, updatedAt: true } },
+      cargoItems: true,
       candidates: { include: { equipmentType: { select: { id: true, name: true, mode: true } } } },
       plans: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { createdAt: true, _count: { select: { unloaded: true } } },
+        select: { createdAt: true, settings: true, _count: { select: { unloaded: true } } },
       },
     },
   })
@@ -61,7 +63,14 @@ export default async function DashboardPage() {
       status: projectStatus({
         cargoCount: project.cargoItems.length,
         equipmentCount: containers.length,
-        plan: latest ? { createdAt: latest.createdAt, unloadedCount: latest._count.unloaded } : null,
+        plan: latest
+          ? {
+              createdAt: latest.createdAt,
+              unloadedCount: latest._count.unloaded,
+              // The same rule as the project page, so the list and the stepper agree.
+              stale: isPlanStale(latest, project.cargoItems, projectClearance(project.rules)),
+            }
+          : null,
         lastCargoChange,
       }),
     }

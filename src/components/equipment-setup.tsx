@@ -12,6 +12,7 @@ import { EquipmentViewer } from "@/components/equipment-viewer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { MODE_ORDER, type EquipmentListItem } from "@/lib/equipment-catalog"
+import { useLengthUnit } from "@/lib/length-unit-pref"
 import { formatEnvelope, formatKg, formatM3, formatPct } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -59,15 +60,20 @@ export const EquipmentSetup = forwardRef<
     projectMode: EquipmentMode
     cargo: CargoLine[]
     objective: "FEWEST_UNITS" | "LOWEST_COST"
+    /** Project default handling clearance per side, in cm. */
+    clearanceCm?: number
+    /** The project's minimum support share, when it has one. */
+    minSupportPct?: number | null
     /** Point the planner at the best-fit check as the step opens (used after importing a packing list). */
     autoSuggest?: boolean
     onAutoSuggestStarted?: () => void
   }
 >(function EquipmentSetup(
-  { projectId, items, initial, canEdit, projectMode, cargo, objective, autoSuggest = false, onAutoSuggestStarted },
+  { projectId, items, initial, canEdit, projectMode, cargo, objective, clearanceCm = 0, minSupportPct = null, autoSuggest = false, onAutoSuggestStarted },
   ref,
 ) {
   const router = useRouter()
+  const unit = useLengthUnit()
   const [query, setQuery] = useState("")
   const [mode, setMode] = useState<EquipmentMode | "ALL">(projectMode)
   const [saved, setSaved] = useState<SelectedUnit[]>(() => unitsFrom(initial))
@@ -199,6 +205,8 @@ export const EquipmentSetup = forwardRef<
           onAutoSuggestStarted?.()
         }}
         objective={objective}
+        clearanceCm={clearanceCm}
+        minSupportPct={minSupportPct}
         canEdit={canEdit}
         selected={units}
         onUse={applySuggestion}
@@ -261,7 +269,7 @@ export const EquipmentSetup = forwardRef<
                   <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setFocusId(item.id)}>
                     <span className="block truncate font-medium">{item.name}</span>
                     <span className="text-xs text-muted-foreground">
-                      {formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm)} · {formatM3(innerM3(item))} ·{" "}
+                      {formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm, unit)} · {formatM3(innerM3(item))} ·{" "}
                       {formatKg(item.maxPayloadKg)} payload
                     </span>
                   </button>

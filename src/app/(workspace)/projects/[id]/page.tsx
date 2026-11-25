@@ -17,6 +17,8 @@ import { PlannerApp } from "@/components/planner-app"
 import { importMappingSchema } from "@/lib/cargo-import"
 import { listEquipmentForOrg } from "@/lib/equipment-catalog"
 import { planFromDb } from "@/lib/plan-from-db"
+import { cargoSetting, projectClearance, projectMinSupportPct, settingToCargoFields } from "@/lib/clearance"
+import { isPlanStale } from "@/lib/plan-staleness"
 import { prisma } from "@/lib/prisma"
 import { requireUser } from "@/lib/session"
 
@@ -73,6 +75,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       ? orientationSchema.parse(item.orientation)
       : "ROTATE_90",
     allowedRotations: parseAllowedRotations(storedRotations(item.customFields)),
+    ...settingToCargoFields(cargoSetting(item.customFields)),
     stackable: item.stackable,
     bottomOnly: item.bottomOnly,
     maxStackLoadKg: item.maxStackLoadKg,
@@ -108,9 +111,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   })
 
   const latest = project.plans[0]
-  const plan = latest ? planFromDb(latest) : null
-  // The saved plan no longer matches the cargo if any line was edited after it was calculated.
-  const planStale = Boolean(latest && project.cargoItems.some((item) => item.updatedAt > latest.createdAt))
+  const clearanceCm = projectClearance(project.rules)
+  // Pieces are judged against the clearance configuration in force now; the plan itself records the
+  // one it was calculated or last checked under.
+  const plan = latest ? planFromDb(latest, { clearanceCm }) : null
+  const minSupportPct = projectMinSupportPct(project.rules)
+  const planStale = latest ? isPlanStale(latest, project.cargoItems, clearanceCm) : false
 
   return (
     <main id="main">
@@ -125,6 +131,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             objective: objectiveSchema.parse(project.objective),
             etd: project.etd ? project.etd.toISOString().slice(0, 10) : null,
             notes: project.notes,
+            clearanceCm,
+            minSupportPct,
           }}
           cargo={lines}
           library={library}

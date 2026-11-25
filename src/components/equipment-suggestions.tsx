@@ -21,11 +21,13 @@ export const TRANSPORT_CHOICES: { mode: EquipmentMode; label: string; icon: Luci
   { mode: "ROAD", label: "Land", icon: Truck },
 ]
 
-function signatureOf(objective: Objective, candidates: EquipmentListItem[], cargo: CargoLine[]): string {
+function signatureOf(objective: Objective, candidates: EquipmentListItem[], cargo: CargoLine[], clearanceCm: number, minSupportPct: number | null): string {
   return JSON.stringify([
     objective,
+    clearanceCm,
+    minSupportPct,
     candidates.map((item) => item.id),
-    cargo.map((line) => [line.id, line.lengthCm, line.widthCm, line.heightCm, line.weightKg, line.quantity, line.stackable, line.orientation]),
+    cargo.map((line) => [line.id, line.lengthCm, line.widthCm, line.heightCm, line.weightKg, line.quantity, line.stackable, line.orientation, line.clearanceCm ?? null, line.clearanceSides ?? null]),
   ])
 }
 
@@ -40,6 +42,8 @@ export function EquipmentSuggestions({
   mode,
   onModeChange,
   objective,
+  clearanceCm = 0,
+  minSupportPct = null,
   canEdit,
   selected,
   onUse,
@@ -52,6 +56,10 @@ export function EquipmentSuggestions({
   mode: EquipmentMode | null
   onModeChange: (mode: EquipmentMode) => void
   objective: Objective
+  /** Project default handling clearance per side, in cm. */
+  clearanceCm?: number
+  /** The project's minimum support share, when it has one. */
+  minSupportPct?: number | null
   canEdit: boolean
   selected: { equipmentTypeId: string; quantity: number }[]
   onUse: (equipmentTypeId: string, units: number) => void
@@ -71,7 +79,7 @@ export function EquipmentSuggestions({
   const chosen = TRANSPORT_CHOICES.find((choice) => choice.mode === mode) ?? null
 
   // The results only describe one exact cargo list and set of types; anything else makes them stale.
-  const signature = useMemo(() => signatureOf(objective, candidates, cargo), [cargo, candidates, objective])
+  const signature = useMemo(() => signatureOf(objective, candidates, cargo, clearanceCm, minSupportPct), [cargo, candidates, objective, clearanceCm, minSupportPct])
   const current = results && results.signature === signature ? results : null
   const stale = Boolean(results) && !current
 
@@ -97,6 +105,8 @@ export function EquipmentSuggestions({
         cargo,
         candidates: list,
         objective,
+        clearanceCm,
+        minSupportPct,
         run: (input) => runSolver(input),
         onProgress: (next) => {
           if (!cancelled.current) setProgress(next)
@@ -104,7 +114,7 @@ export function EquipmentSuggestions({
         isCancelled: () => cancelled.current,
       })
       if (cancelled.current) return
-      setResults({ signature: signatureOf(objective, list, cargo), ranked, checked: list.length })
+      setResults({ signature: signatureOf(objective, list, cargo, clearanceCm, minSupportPct), ranked, checked: list.length })
     } catch {
       toast.error("Could not compare the equipment. Try again.")
     } finally {

@@ -17,6 +17,7 @@ import { StepLoader } from "@/components/step-loader"
 import { Button } from "@/components/ui/button"
 import type { EquipmentListItem } from "@/lib/equipment-catalog"
 import { formatDate } from "@/lib/format"
+import { derivePlanStatus, type PlanStatus } from "@/lib/plan-status"
 import type { PlanView } from "@/lib/plan-view"
 
 const NEED_CARGO = "Add at least one cargo line with a name, sizes, weight, and quantity."
@@ -41,6 +42,10 @@ export function PlannerApp({
     objective: "FEWEST_UNITS" | "LOWEST_COST"
     etd: string | null
     notes: string | null
+    /** Project default handling clearance per side, in cm. */
+    clearanceCm: number
+    /** The project's minimum support share (percent), when it has set one. */
+    minSupportPct: number | null
   }
   cargo: CargoLine[]
   library: EquipmentListItem[]
@@ -65,6 +70,14 @@ export function PlannerApp({
   const [planReady, setPlanReady] = useState(Boolean(plan && plan.units.length > 0))
   const [syncedChoices, setSyncedChoices] = useState(choices)
   const [syncedPlan, setSyncedPlan] = useState(plan)
+  // One status for the stepper: the Calculate page reports it as it changes; until then it comes from the saved plan.
+  const serverStatus = derivePlanStatus({ hasPlan: Boolean(plan && plan.units.length > 0), calculating: false, stale: planStale, failed: false })
+  const [planStatus, setPlanStatus] = useState<PlanStatus>(serverStatus)
+  const [syncedStale, setSyncedStale] = useState(planStale)
+  if (syncedStale !== planStale) {
+    setSyncedStale(planStale)
+    setPlanStatus(serverStatus)
+  }
   if (syncedChoices !== choices) {
     setSyncedChoices(choices)
     setEquipmentPicked(choices.length > 0)
@@ -72,6 +85,7 @@ export function PlannerApp({
   if (syncedPlan !== plan) {
     setSyncedPlan(plan)
     setPlanReady(Boolean(plan && plan.units.length > 0))
+    setPlanStatus(serverStatus)
   }
   const setupRef = useRef<EquipmentSetupHandle>(null)
   const workspaceRef = useRef<PlanWorkspaceHandle>(null)
@@ -133,7 +147,7 @@ export function PlannerApp({
     workspace: {
       done: planReady,
       blocked: lockedReason("workspace"),
-      summary: planReady ? (planStale ? "Out of date" : "Plan ready") : "Not calculated",
+      summary: planStatus.label,
     },
     plan: { done: false, blocked: lockedReason("plan"), summary: planReady ? "3D, sequence, export" : undefined },
   }
@@ -306,7 +320,7 @@ export function PlannerApp({
           <div key={step === "plan" ? "workspace" : step} className="motion-enter">
           {step === "data" ? (
             <div className="space-y-6">
-              <CargoGrid projectId={project.id} projectName={project.name} lines={cargo} canEdit={canEdit} />
+              <CargoGrid projectId={project.id} projectName={project.name} lines={cargo} canEdit={canEdit} projectClearance={project.clearanceCm} />
               {canEdit ? (
                 <CargoImportWizard
                   projectId={project.id}
@@ -333,6 +347,8 @@ export function PlannerApp({
               projectMode={project.mode}
               cargo={readyLines}
               objective={project.objective}
+              clearanceCm={project.clearanceCm}
+              minSupportPct={project.minSupportPct}
               autoSuggest={autoSuggest}
               onAutoSuggestStarted={() => setAutoSuggest(false)}
             />
@@ -346,11 +362,15 @@ export function PlannerApp({
               cargo={cargo}
               equipment={equipment}
               objective={project.objective}
+              clearanceCm={project.clearanceCm}
+              minSupportPct={project.minSupportPct}
               initialPlan={plan}
               initialStale={planStale}
               canEdit={canEdit}
               variant={step}
               onPlanChange={(ready) => setPlanReady(ready)}
+              onStatusChange={setPlanStatus}
+              onOpenPlan={() => void navigate("plan")}
               onEditStep={(target) => void navigate(target)}
             />
           ) : null}

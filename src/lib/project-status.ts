@@ -13,7 +13,8 @@ export type ProjectStatus = {
 export function projectStatus(input: {
   cargoCount: number
   equipmentCount: number
-  plan: { createdAt: Date; unloadedCount: number } | null
+  /** `stale` is the project's own verdict (cargo or clearance changed since); without it only cargo edit times are compared. */
+  plan: { createdAt: Date; unloadedCount: number; stale?: boolean } | null
   lastCargoChange: Date | null
 }): ProjectStatus {
   if (input.cargoCount === 0) return { kind: "no-cargo", label: "Add cargo", step: "data", tone: "neutral" }
@@ -21,9 +22,8 @@ export function projectStatus(input: {
     return { kind: "needs-equipment", label: "Choose equipment", step: "setup", tone: "action" }
   }
   if (!input.plan) return { kind: "not-calculated", label: "Ready to calculate", step: "workspace", tone: "action" }
-  if (input.lastCargoChange && input.lastCargoChange > input.plan.createdAt) {
-    return { kind: "stale", label: "Cargo changed, recalculate", step: "workspace", tone: "warning" }
-  }
+  const stale = input.plan.stale ?? Boolean(input.lastCargoChange && input.lastCargoChange > input.plan.createdAt)
+  if (stale) return { kind: "stale", label: "Out of date, recalculate", step: "workspace", tone: "warning" }
   if (input.plan.unloadedCount > 0) {
     const count = input.plan.unloadedCount
     return { kind: "unloaded", label: `${count} piece${count === 1 ? "" : "s"} not loaded`, step: "plan", tone: "warning" }

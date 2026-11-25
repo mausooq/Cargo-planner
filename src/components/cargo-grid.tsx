@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react"
 import { cargoItemInputSchema, type AxisRotation, type CargoItemInput, type CargoShape } from "@compass/domain"
-import { AlertCircle, Check, Copy, Download, FileDown, FileUp, Loader2, Plus, Trash2 } from "lucide-react"
+import { AlertCircle, Check, Copy, Download, FileDown, FileUp, Loader2, Plus, Settings2, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import {
   addCargoItem,
@@ -19,18 +19,24 @@ import {
   presetFor,
 } from "@/components/allowed-orientations-dialog"
 import { openCargoFilePicker } from "@/components/cargo-import-wizard"
+import { ClearanceEditorDialog } from "@/components/clearance-editor"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { downloadCargoWorkbook } from "@/lib/cargo-export"
+import { columnsAfter, tableMinWidthRem, visibleColumns } from "@/lib/cargo-grid-columns"
 import {
-  fromDisplayLength,
+  displayLengthText,
+  feetAndInches,
+  interpretLengthEdit,
   LENGTH_UNIT_LABEL,
+  LENGTH_UNIT_SYMBOL,
   LENGTH_UNITS,
-  roundDisplayLength,
-  toDisplayLength,
   type LengthUnit,
 } from "@/lib/cargo-units"
+import { useLengthUnit, writeLengthUnit } from "@/lib/length-unit-pref"
+import { lineSetting, settingToCargoFields } from "@/lib/clearance"
+import { describeSetting, describeSides } from "@compass/physics"
 import { cargoTotals, checkCargoLine, isPlannable, type CargoField } from "@/lib/cargo-validation"
 import { cargoColor, formatKg, formatM3 } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -46,19 +52,7 @@ const SHAPES: { value: CargoShape; label: string }[] = [
   { value: "PIPE", label: "Pipe" },
 ]
 
-const UNIT_STORAGE_KEY = "compass.cargo.lengthUnit"
-const UNIT_EVENT = "compass-cargo-unit"
 const ADVANCED_STORAGE_KEY = "compass.cargo.showAdvanced"
-
-function readLengthUnit(): LengthUnit {
-  try {
-    const stored = window.localStorage.getItem(UNIT_STORAGE_KEY)
-    if (stored === "cm" || stored === "in" || stored === "m") return stored
-  } catch {
-    // Storage blocked: fall back to centimetres.
-  }
-  return "cm"
-}
 
 function readShowAdvanced(): boolean {
   try {
@@ -68,22 +62,22 @@ function readShowAdvanced(): boolean {
   }
 }
 
-function subscribePrefs(onStoreChange: () => void) {
-  window.addEventListener(UNIT_EVENT, onStoreChange)
-  window.addEventListener("storage", onStoreChange)
-  return () => {
-    window.removeEventListener(UNIT_EVENT, onStoreChange)
-    window.removeEventListener("storage", onStoreChange)
-  }
-}
-
-function writePref(key: string, value: string) {
+function writeAdvanced(show: boolean) {
   try {
-    window.localStorage.setItem(key, value)
+    window.localStorage.setItem(ADVANCED_STORAGE_KEY, show ? "1" : "0")
   } catch {
     // Ignore: the choice just won't persist.
   }
-  window.dispatchEvent(new Event(UNIT_EVENT))
+  window.dispatchEvent(new Event("compass-cargo-unit"))
+}
+
+function subscribeAdvanced(onStoreChange: () => void) {
+  window.addEventListener("compass-cargo-unit", onStoreChange)
+  window.addEventListener("storage", onStoreChange)
+  return () => {
+    window.removeEventListener("compass-cargo-unit", onStoreChange)
+    window.removeEventListener("storage", onStoreChange)
+  }
 }
 
 type SaveState = "idle" | "saving" | "saved" | "error"
@@ -96,11 +90,14 @@ export function CargoGrid({
   projectName,
   lines,
   canEdit,
+  projectClearance = 0,
 }: {
   projectId: string
   projectName: string
   lines: CargoLine[]
   canEdit: boolean
+  /** The project default handling clearance, shown for lines that inherit it. */
+  projectClearance?: number
 }) {
   const [exporting, setExporting] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
@@ -111,8 +108,8 @@ export function CargoGrid({
   const [adding, setAdding] = useState(false)
   const focusNewRow = useRef<number | null>(null)
   const tableRef = useRef<HTMLTableElement>(null)
-  const unit = useSyncExternalStore(subscribePrefs, readLengthUnit, () => "cm" as LengthUnit)
-  const showAdvanced = useSyncExternalStore(subscribePrefs, readShowAdvanced, () => false)
+  const unit = useLengthUnit()
+  const showAdvanced = useSyncExternalStore(subscribeAdvanced, readShowAdvanced, () => false)
 
   // Drop ids that no longer exist (deleted elsewhere or by a bulk delete).
   const selectedIds = selected.filter((id) => lines.some((line) => line.id === id))
@@ -159,7 +156,7 @@ export function CargoGrid({
   async function exportExcel() {
     setExporting(true)
     try {
-      await downloadCargoWorkbook(lines.map(toCargoInput), projectName)
+      await downloadCargoWorkbook(lines.map(toCargoInput), projectName, unit)
     } catch {
       toast.error("Could not build the Excel file.")
     } finally {
@@ -290,7 +287,7 @@ export function CargoGrid({
               aria-label="Length unit"
               className="h-9 rounded-md border bg-background px-2 text-sm"
               value={unit}
-              onChange={(event) => writePref(UNIT_STORAGE_KEY, event.target.value)}
+              onChange={(event) => writeLengthUnit(event.target.value as LengthUnit)}
             >
               {LENGTH_UNITS.map((entry) => (
                 <option key={entry} value={entry}>
@@ -303,7 +300,7 @@ export function CargoGrid({
             <input
               type="checkbox"
               checked={showAdvanced}
-              onChange={(event) => writePref(ADVANCED_STORAGE_KEY, event.target.checked ? "1" : "0")}
+              onChange={(event) => writeAdvanced(event.target.checked)}
             />
             <span>
               More columns
@@ -418,32 +415,13 @@ export function CargoGrid({
           <div className="overflow-x-auto overflow-y-clip rounded-md border bg-card">
             <table
               ref={tableRef}
-              className={cn(
-                "w-full table-fixed border-collapse text-left text-sm",
-                showAdvanced ? "min-w-[1180px]" : "min-w-[900px]",
-              )}
+              className="w-full table-fixed border-collapse text-left text-sm"
+              style={{ minWidth: `${tableMinWidthRem(showAdvanced)}rem` }}
             >
               <colgroup>
-                <col className="w-8" />
-                <col className="w-[10%]" />
-                <col className={showAdvanced ? "w-[13%]" : "w-[20%]"} />
-                <col className="w-[7%]" />
-                <col className="w-[7%]" />
-                <col className="w-[7%]" />
-                <col className="w-[7%]" />
-                <col className="w-[6%]" />
-                <col className="w-[7%]" />
-                <col className="w-[11%]" />
-                <col className="w-[7%]" />
-                {showAdvanced ? (
-                  <>
-                    <col className="w-[6%]" />
-                    <col className="w-[5%]" />
-                    <col className="w-[5%]" />
-                    <col />
-                  </>
-                ) : null}
-                <col className="w-20" />
+                {visibleColumns(showAdvanced).map((column) => (
+                  <col key={column.key} className={column.width} />
+                ))}
               </colgroup>
               <thead className="cursor-default bg-muted/50 text-xs text-muted-foreground select-none">
                 <tr>
@@ -458,9 +436,9 @@ export function CargoGrid({
                   </th>
                   <Th>SKU</Th>
                   <Th>Name</Th>
-                  <Th title={`Length in ${LENGTH_UNIT_LABEL[unit]}`}>L ({unit})</Th>
-                  <Th title={`Width in ${LENGTH_UNIT_LABEL[unit]}`}>W ({unit})</Th>
-                  <Th title={`Height in ${LENGTH_UNIT_LABEL[unit]}`}>H ({unit})</Th>
+                  <Th title={`Length in ${LENGTH_UNIT_LABEL[unit]}`}>L ({LENGTH_UNIT_SYMBOL[unit]})</Th>
+                  <Th title={`Width in ${LENGTH_UNIT_LABEL[unit]}`}>W ({LENGTH_UNIT_SYMBOL[unit]})</Th>
+                  <Th title={`Height in ${LENGTH_UNIT_LABEL[unit]}`}>H ({LENGTH_UNIT_SYMBOL[unit]})</Th>
                   <Th title="Weight of one piece, in kilograms">kg / piece</Th>
                   <Th title="Number of identical pieces">Qty</Th>
                   <Th title="Tick if nothing may be placed on top of this item">No stack</Th>
@@ -472,9 +450,12 @@ export function CargoGrid({
                       <Th title="Higher priority loads first">Priority</Th>
                       <Th title="Delivery stop number; stop 1 is unloaded first">Stop</Th>
                       <Th>Consignment</Th>
+                      <Th title="Free space reserved around this item for forks or hands: the project default, one value for every side, or a value for each side. Do not add packaging that is already in the sizes.">
+                        Clearance
+                      </Th>
                     </>
                   ) : null}
-                  <th className="px-1 py-2">
+                  <th className="sticky right-0 z-[1] border-l bg-muted px-1 py-2">
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -494,6 +475,7 @@ export function CargoGrid({
                       setSelected((current) => (on ? [...current, line.id] : current.filter((id) => id !== line.id)))
                     }
                     onKeyNav={moveFocus}
+                    projectClearance={projectClearance}
                     trackSave={trackSave}
                     onDelete={() => deleteLines([line.id])}
                   />
@@ -512,7 +494,7 @@ export function CargoGrid({
                     {formatKg(totals.weightKg)}
                   </td>
                   <td className="px-2 py-2">{totals.pieces}</td>
-                  <td colSpan={showAdvanced ? 8 : 4} className="px-2 py-2 text-right text-xs font-normal text-muted-foreground">
+                  <td colSpan={columnsAfter(showAdvanced, "quantity")} className="px-2 py-2 text-right text-xs font-normal text-muted-foreground">
                     Weight and volume are totals across all pieces.
                   </td>
                 </tr>
@@ -556,6 +538,7 @@ function CargoRow({
   selected,
   onSelected,
   onKeyNav,
+  projectClearance,
   trackSave,
   onDelete,
 }: {
@@ -568,6 +551,7 @@ function CargoRow({
   selected: boolean
   onSelected: (on: boolean) => void
   onKeyNav: (event: KeyboardEvent<HTMLElement>, rowIndex: number) => void
+  projectClearance: number
   trackSave: <T extends { ok: boolean; error?: string }>(promise: Promise<T>) => Promise<T>
   onDelete: () => Promise<boolean>
 }) {
@@ -823,9 +807,19 @@ function CargoRow({
               {...cellProps("consignment")}
             />
           </td>
+          <ClearanceCell
+            line={draft}
+            projectDefault={projectClearance}
+            disabled={!canEdit}
+            onApply={(setting) => {
+              const next = { ...draft, ...settingToCargoFields(setting) }
+              setDraft(next)
+              commit(next)
+            }}
+          />
         </>
       ) : null}
-      <td className="px-1 py-1">
+      <td className="sticky right-0 z-[1] border-l bg-card px-1 py-1">
         {canEdit ? (
           <div className="flex justify-end gap-0.5">
             <Button
@@ -900,27 +894,30 @@ function LengthCell({
   onBlur: () => void
   inputProps: CellInputProps
 }) {
-  const [text, setText] = useState(() => displayLength(cm, unit))
+  const [text, setText] = useState(() => displayLengthText(cm, unit))
   const [focused, setFocused] = useState(false)
+  // What the box holds could not be read as a size; it is not applied, and is put back when the box is left.
+  const [unreadable, setUnreadable] = useState<string | null>(null)
   const [source, setSource] = useState({ cm, unit })
   if (!focused && (source.cm !== cm || source.unit !== unit)) {
     setSource({ cm, unit })
-    setText(displayLength(cm, unit))
+    setText(displayLengthText(cm, unit))
   }
+  const hint = problem ?? unreadable ?? (cm > 0 && unit === "ft" ? `= ${feetAndInches(cm)}` : undefined)
 
   return (
     <td className="px-1 py-1">
       <Input
         aria-label={`${label} (${LENGTH_UNIT_LABEL[unit]})`}
-        type="number"
-        step="any"
-        min={0}
-        inputMode="decimal"
-        placeholder={unit}
+        type="text"
+        // Feet and inches are typed with letters and marks (5 ft 6 in, 5'6"), so this is not a number box.
+        inputMode={unit === "ft" || unit === "in" ? "text" : "decimal"}
+        autoComplete="off"
+        placeholder={LENGTH_UNIT_SYMBOL[unit]}
         value={text}
         disabled={disabled}
-        aria-invalid={tone === "error"}
-        title={problem}
+        aria-invalid={tone === "error" || unreadable !== null}
+        title={hint}
         onFocus={(event) => {
           setFocused(true)
           event.currentTarget.select()
@@ -928,19 +925,88 @@ function LengthCell({
         onChange={(event) => {
           const raw = event.target.value
           setText(raw)
-          if (raw.trim() === "") {
+          const edit = interpretLengthEdit(raw, unit, cm)
+          // Switching the unit or clicking in and out never reaches here, so a stored size only changes when a new one is typed.
+          if (edit.kind === "blank") {
+            setUnreadable(null)
             onChange(0)
-            return
+          } else if (edit.kind === "changed") {
+            setUnreadable(null)
+            onChange(edit.cm)
+          } else if (edit.kind === "invalid") {
+            setUnreadable(edit.reason)
+          } else {
+            setUnreadable(null)
           }
-          const next = Number(raw)
-          if (Number.isFinite(next)) onChange(fromDisplayLength(next, unit))
         }}
         onBlur={() => {
           setFocused(false)
+          if (unreadable !== null) {
+            toast.error(`Could not read “${text}” as a size. ${unreadable}`)
+            setUnreadable(null)
+            setText(displayLengthText(cm, unit))
+          }
           onBlur()
         }}
         className={cn("h-8 min-w-0 px-1.5", cellTone(tone))}
         {...inputProps}
+      />
+    </td>
+  )
+}
+
+/**
+ * A compact summary of a line's handling clearance ("Default · 5 cm", "Uniform · 10 cm", "Custom · 0 cm",
+ * "Directional") that opens the clearance editor. One cell instead of four columns.
+ */
+function ClearanceCell({
+  line,
+  projectDefault,
+  disabled,
+  onApply,
+}: {
+  line: CargoLine
+  projectDefault: number
+  disabled: boolean
+  onApply: (setting: ReturnType<typeof lineSetting>) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const setting = lineSetting(line)
+  const label = describeSetting(setting, projectDefault)
+  const detail = typeof setting === "object" && setting ? describeSides(setting) : undefined
+  return (
+    <td className="px-1 py-1">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        disabled={disabled}
+        aria-label={`Clearance for ${line.name || "this line"}: ${label}. Edit`}
+        title={detail ?? "Edit handling clearance for this line"}
+        className={cn(
+          "flex h-8 w-full min-w-0 items-center justify-between gap-1.5 rounded-md border bg-background px-2 text-left text-xs",
+          "hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-70 disabled:hover:bg-background",
+          setting !== null && "border-primary/40",
+        )}
+      >
+        <span className="truncate tabular-nums">{label}</span>
+        <Settings2 className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      </button>
+      <ClearanceEditorDialog
+        open={open}
+        onOpenChange={setOpen}
+        line={{
+          id: line.id,
+          sku: line.sku,
+          name: line.name,
+          lengthCm: line.lengthCm,
+          widthCm: line.widthCm,
+          heightCm: line.heightCm,
+          weightKg: line.weightKg,
+          quantity: line.quantity,
+        }}
+        setting={setting}
+        projectDefault={projectDefault}
+        onApply={onApply}
       />
     </td>
   )
@@ -1032,11 +1098,6 @@ function numberText(value: number, allowZero?: boolean): string {
   return String(value)
 }
 
-function displayLength(cm: number, unit: LengthUnit): string {
-  if (!Number.isFinite(cm) || cm === 0) return ""
-  return String(roundDisplayLength(toDisplayLength(cm, unit), unit))
-}
-
 function toCargoInput(line: CargoItemInput): CargoItemInput {
   return {
     sku: line.sku,
@@ -1058,5 +1119,7 @@ function toCargoInput(line: CargoItemInput): CargoItemInput {
     consignmentId: line.consignmentId,
     segregationClass: line.segregationClass,
     color: line.color,
+    clearanceCm: line.clearanceCm ?? null,
+    clearanceSides: line.clearanceSides ?? null,
   }
 }

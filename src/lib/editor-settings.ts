@@ -2,7 +2,7 @@
 
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
-import type { PhysicsSettings } from "@compass/physics"
+import { DEFAULT_MIN_SUPPORT_PCT, type PhysicsSettings } from "@compass/physics"
 
 export type EditorSettings = {
   strictMode: boolean
@@ -17,7 +17,7 @@ export type EditorSettings = {
 const DEFAULTS: EditorSettings = {
   strictMode: true,
   clampToWalls: false,
-  minSupportPct: 70,
+  minSupportPct: DEFAULT_MIN_SUPPORT_PCT,
   colourBlindPalette: false,
   moveRealPieceWhileDragging: false,
   snapToStack: true,

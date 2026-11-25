@@ -2,6 +2,7 @@
 
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { MIN_SUPPORT_PCT } from "@/lib/clearance"
 import { useEditorSettings } from "@/lib/editor-settings"
 
 export function DragSettingsPanel() {
@@ -35,11 +36,16 @@ export function DragSettingsPanel() {
         Min support
         <input
           type="number"
-          min={10}
-          max={100}
+          min={MIN_SUPPORT_PCT.min}
+          max={MIN_SUPPORT_PCT.max}
           step={5}
+          title="The smallest share of a stacked piece that must rest on something. Saved with the layout as the project's setting, and used by the packer and the server check."
           value={settings.minSupportPct}
-          onChange={(event) => settings.patch({ minSupportPct: Math.min(100, Math.max(10, Number(event.target.value) || 70)) })}
+          onChange={(event) =>
+            settings.patch({
+              minSupportPct: Math.min(MIN_SUPPORT_PCT.max, Math.max(MIN_SUPPORT_PCT.min, Number(event.target.value) || MIN_SUPPORT_PCT.fallback)),
+            })
+          }
           className="h-7 w-14 rounded-md border bg-background px-1.5 text-foreground"
         />
         %

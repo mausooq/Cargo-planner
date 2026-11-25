@@ -1,4 +1,5 @@
 import type { Vec3 } from "./math"
+import { DEFAULT_MIN_SUPPORT_PCT } from "./support-policy"
 
 export type CylinderAxis = "x" | "y" | "z"
 export type BodyShape = "box" | "cylinder"
@@ -49,7 +50,7 @@ export const DEFAULT_WORLD: PhysicsWorld = {
   heightCm: 270,
   decksCm: [0],
   obstructions: [],
-  minSupportRatio: 0.7,
+  minSupportRatio: DEFAULT_MIN_SUPPORT_PCT / 100,
   maxOverhangRatio: 0.3,
   toleranceCm: 0.1,
 }

@@ -5,6 +5,7 @@ import Link from "next/link"
 import { modeLabel } from "@compass/domain"
 import type { EquipmentListItem } from "@/lib/equipment-catalog"
 import { equipmentVolumeM3 } from "@/lib/equipment-metrics"
+import { useLengthUnit } from "@/lib/length-unit-pref"
 import { formatCm, formatEnvelope, formatKg, formatM3 } from "@/lib/format"
 import { WebGLGuard } from "@/components/webgl-guard"
 
@@ -23,6 +24,7 @@ const EquipmentCompareCanvas = dynamic(
 )
 
 export function EquipmentCompare({ items }: { items: EquipmentListItem[] }) {
+  const unit = useLengthUnit()
   return (
     <div className="space-y-4">
       <p className="text-sm">
@@ -55,14 +57,14 @@ export function EquipmentCompare({ items }: { items: EquipmentListItem[] }) {
               </thead>
               <tbody>
                 <SpecRow label="Type" values={items.map((item) => modeLabel(item.mode))} />
-                <SpecRow label="L × W × H" values={items.map((item) => formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm))} />
+                <SpecRow label="L × W × H" values={items.map((item) => formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm, unit))} />
                 <SpecRow label="Volume" values={items.map((item) => formatM3(equipmentVolumeM3(item)))} />
                 <SpecRow label="Payload" values={items.map((item) => formatKg(item.maxPayloadKg))} />
                 <SpecRow label="Tare" values={items.map((item) => formatKg(item.tareKg))} />
                 <SpecRow
                   label="Door"
                   values={items.map((item) =>
-                    item.doorWidthCm && item.doorHeightCm ? `${formatCm(item.doorWidthCm)} × ${formatCm(item.doorHeightCm)}` : "—",
+                    item.doorWidthCm && item.doorHeightCm ? `${formatCm(item.doorWidthCm, unit)} × ${formatCm(item.doorHeightCm, unit)}` : "—",
                   )}
                 />
               </tbody>

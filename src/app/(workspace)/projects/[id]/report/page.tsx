@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react"
 import { equipmentModeSchema, modeLabel } from "@compass/domain"
 import { PlanDiagram } from "@/components/plan-diagram"
 import { Button } from "@/components/ui/button"
+import { ACTUAL_FLOOR_HELP, AXLE_ESTIMATE_NOTE, CLEARANCE_HELP, EFFECTIVE_FLOOR_HELP, clearanceText, formatClearance } from "@/lib/clearance"
 import { formatDate, formatKg, formatM3, formatPct } from "@/lib/format"
 import { loadOrder } from "@/lib/plan-export"
 import { planFromDb } from "@/lib/plan-from-db"
@@ -94,8 +95,21 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
         </dl>
       </header>
       <p className="mt-2 text-xs text-muted-foreground">
-        Calculated {generated} by {user.name ?? "Compass"}. Payload and axle limits are planning defaults, not certified ratings.
+        Calculated {generated} by {user.name ?? "Compass"}. Payload and axle limits are planning defaults, not certified ratings. Sizes and positions are in
+        centimetres (cm), weights in kg, volumes in m³, and handling clearance in cm.
       </p>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+        <li>
+          <span className="font-medium">Actual floor utilization:</span> {ACTUAL_FLOOR_HELP}
+        </li>
+        <li>
+          <span className="font-medium">Effective floor utilization:</span> {EFFECTIVE_FLOOR_HELP}
+        </li>
+        <li>
+          <span className="font-medium">Handling allowance (project default {formatClearance(plan.clearanceCm)}):</span> {CLEARANCE_HELP}
+        </li>
+        <li>{AXLE_ESTIMATE_NOTE}</li>
+      </ul>
 
       <section className="mt-5 overflow-hidden rounded-md border print-avoid-break">
         <table className="sheet-table w-full text-left">
@@ -106,7 +120,12 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
               <th className="px-3 py-2">Net weight</th>
               <th className="px-3 py-2">Payload used</th>
               <th className="px-3 py-2">Volume used</th>
-              <th className="px-3 py-2">Floor used</th>
+              <th className="px-3 py-2" title={ACTUAL_FLOOR_HELP}>
+                Actual floor utilization (%)
+              </th>
+              <th className="px-3 py-2" title={EFFECTIVE_FLOOR_HELP}>
+                Effective floor utilization (%)
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -119,7 +138,8 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                 <td className="px-3 py-2">{formatKg(unit.netKg)}</td>
                 <td className="px-3 py-2">{formatPct(unit.weightPct)}</td>
                 <td className="px-3 py-2">{formatPct(unit.volumePct)}</td>
-                <td className="px-3 py-2">{formatPct(unit.floorPct)}</td>
+                <td className="px-3 py-2">{formatPct(unit.floorActualPct)}</td>
+                <td className="px-3 py-2">{formatPct(unit.floorEffectivePct)}</td>
               </tr>
             ))}
           </tbody>
@@ -151,7 +171,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
               </h2>
               <p className="text-muted-foreground">
                 {unit.pieces} pieces · {formatKg(unit.netKg)} ({formatPct(unit.weightPct)}) · {formatM3(unit.volumeM3)} (
-                {formatPct(unit.volumePct)})
+                {formatPct(unit.volumePct)}) · floor {formatPct(unit.floorActualPct)} actual / {formatPct(unit.floorEffectivePct)} effective
               </p>
             </div>
             <div className="mt-3 grid gap-4 md:grid-cols-2 print:grid-cols-2">
@@ -183,6 +203,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                   <th className="px-2 py-1.5">From front</th>
                   <th className="px-2 py-1.5">From left</th>
                   <th className="px-2 py-1.5">From floor</th>
+                  <th className="px-2 py-1.5">Clearance</th>
                 </tr>
               </thead>
               <tbody>
@@ -200,6 +221,7 @@ export default async function ReportPage({ params }: { params: Promise<{ id: str
                     <td className="px-2 py-1">{Math.round(item.x)} cm</td>
                     <td className="px-2 py-1">{Math.round(item.y)} cm</td>
                     <td className="px-2 py-1">{Math.round(item.z)} cm</td>
+                    <td className="px-2 py-1">{clearanceText(item.clearanceSetting ?? null, plan.clearanceCm)}</td>
                   </tr>
                 ))}
               </tbody>

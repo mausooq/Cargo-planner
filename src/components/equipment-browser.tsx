@@ -25,6 +25,8 @@ import {
 import { downloadEquipmentFile } from "@/lib/equipment-export"
 import { cargoFitsEquipment, type FitCargo } from "@/lib/equipment-fit"
 import { equipmentVolumeM3 } from "@/lib/equipment-metrics"
+import type { LengthUnit } from "@/lib/cargo-units"
+import { useLengthUnit } from "@/lib/length-unit-pref"
 import { formatCm, formatCost, formatEnvelope, formatKg, formatM3 } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { AddToProjectDialog, type ProjectOption } from "@/components/add-to-project-dialog"
@@ -43,6 +45,7 @@ export function EquipmentBrowser({
   canEditProjects?: boolean
   projects?: ProjectOption[]
 }) {
+  const unit = useLengthUnit()
   const selectedId = useEquipmentLibrary((state) => state.selectedId)
   const setSelectedId = useEquipmentLibrary((state) => state.setSelectedId)
   const searchParams = useSearchParams()
@@ -330,7 +333,7 @@ export function EquipmentBrowser({
                           <span>
                             <span className="block font-medium">{item.name}</span>
                             <span className="text-sm text-muted-foreground">
-                              {formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm)}
+                              {formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm, unit)}
                               {item.heightOpen ? " · open height" : ""}
                             </span>
                           </span>
@@ -459,6 +462,7 @@ function EquipmentDetail({
   onCloseEdit: () => void
   onSaved: (id: string) => void
 }) {
+  const unit = useLengthUnit()
   if (editing && canManage) {
     return <EquipmentForm key={equipmentFormKey(item)} item={item} onClose={onCloseEdit} onSaved={onSaved} />
   }
@@ -478,7 +482,7 @@ function EquipmentDetail({
               Edit dimensions
             </button>
           ) : null}
-          <button type="button" onClick={() => copySpecs(item)} className="inline-flex items-center gap-1 text-xs text-primary">
+          <button type="button" onClick={() => copySpecs(item, unit)} className="inline-flex items-center gap-1 text-xs text-primary">
             <ClipboardCopy className="size-3.5" />
             Copy specs
           </button>
@@ -499,14 +503,14 @@ function EquipmentDetail({
         <Spec label="Reference gross" value={formatKg(item.grossKg)} />
         <Spec label="Planning cost" value={formatCost(item.costPerUnit)} />
         {item.doorWidthCm && item.doorHeightCm ? (
-          <Spec label="Door" value={`${formatCm(item.doorWidthCm)} × ${formatCm(item.doorHeightCm)}`} />
+          <Spec label="Door" value={`${formatCm(item.doorWidthCm, unit)} × ${formatCm(item.doorHeightCm, unit)}`} />
         ) : null}
         <Spec label="Workbook id" value={item.externalId ?? "—"} />
         <Spec label="Used in" value={`${item.projectCount} ${item.projectCount === 1 ? "project" : "projects"}`} />
       </dl>
       {item.sizeLabel ? <p className="text-xs text-muted-foreground">Source size: {item.sizeLabel}</p> : null}
       {item.extendable && item.maxExtendedLengthCm ? (
-        <p className="text-sm">Extends to {formatCm(item.maxExtendedLengthCm)}.</p>
+        <p className="text-sm">Extends to {formatCm(item.maxExtendedLengthCm, unit)}.</p>
       ) : null}
 
       <div>
@@ -535,7 +539,7 @@ function EquipmentDetail({
             <li key={axle.name} className="flex items-baseline justify-between gap-3">
               <span>{axle.name}</span>
               <span className="text-muted-foreground">
-                {formatCm(axle.positionFromFrontCm)} · {formatKg(axle.maxKg)}
+                {formatCm(axle.positionFromFrontCm, unit)} · {formatKg(axle.maxKg)}
               </span>
             </li>
           ))}
@@ -558,11 +562,12 @@ function DimensionLegend({
   widthCm: number
   heightCm: number
 }) {
+  const unit = useLengthUnit()
   return (
     <p className="flex flex-wrap gap-2 text-sm font-medium">
-      <DimensionBadge letter="L" label="Length" value={formatCm(lengthCm)} className="bg-amber-950 text-amber-50" />
-      <DimensionBadge letter="W" label="Width" value={formatCm(widthCm)} className="bg-blue-900 text-blue-50" />
-      <DimensionBadge letter="H" label="Height" value={formatCm(heightCm)} className="bg-violet-950 text-violet-50" />
+      <DimensionBadge letter="L" label="Length" value={formatCm(lengthCm, unit)} className="bg-amber-950 text-amber-50" />
+      <DimensionBadge letter="W" label="Width" value={formatCm(widthCm, unit)} className="bg-blue-900 text-blue-50" />
+      <DimensionBadge letter="H" label="Height" value={formatCm(heightCm, unit)} className="bg-violet-950 text-violet-50" />
     </p>
   )
 }
@@ -619,21 +624,21 @@ function sortValue(item: EquipmentListItem, sort: LibrarySort): number {
   return 0
 }
 
-function formatDoor(item: EquipmentListItem): string {
-  if (item.doorWidthCm && item.doorHeightCm) return `${formatCm(item.doorWidthCm)} × ${formatCm(item.doorHeightCm)}`
+function formatDoor(item: EquipmentListItem, unit: LengthUnit): string {
+  if (item.doorWidthCm && item.doorHeightCm) return `${formatCm(item.doorWidthCm, unit)} × ${formatCm(item.doorHeightCm, unit)}`
   return "—"
 }
 
-async function copySpecs(item: EquipmentListItem) {
+async function copySpecs(item: EquipmentListItem, unit: LengthUnit) {
   const lines = [
     item.name,
     item.code,
     `Type ${modeLabel(item.mode)}`,
-    `L × W × H ${formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm)}`,
+    `L × W × H ${formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm, unit)}`,
     `Volume ${formatM3(equipmentVolumeM3(item))}`,
     `Payload ${formatKg(item.maxPayloadKg)}`,
     `Tare ${formatKg(item.tareKg)}`,
-    `Door ${formatDoor(item)}`,
+    `Door ${formatDoor(item, unit)}`,
   ]
   try {
     await navigator.clipboard.writeText(lines.join("\n"))
@@ -821,6 +826,7 @@ function EquipmentTable({
   onSelect: (id: string) => void
   onSort: (sort: LibrarySort) => void
 }) {
+  const unit = useLengthUnit()
   const columns: { key: LibrarySort; label: string }[] = [
     { key: "name", label: "Name" },
     { key: "type", label: "Type" },
@@ -880,11 +886,11 @@ function EquipmentTable({
                   {fits ? <span className="ml-2 font-medium text-emerald-950">Fits</span> : null}
                 </td>
                 <td className="px-3 py-2">{modeLabel(item.mode)}</td>
-                <td className="px-3 py-2">{formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm)}</td>
+                <td className="px-3 py-2">{formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm, unit)}</td>
                 <td className="px-3 py-2">{formatM3(equipmentVolumeM3(item))}</td>
                 <td className="px-3 py-2">{formatKg(item.maxPayloadKg)}</td>
                 <td className="px-3 py-2">{formatKg(item.tareKg)}</td>
-                <td className="px-3 py-2">{formatDoor(item)}</td>
+                <td className="px-3 py-2">{formatDoor(item, unit)}</td>
               </tr>
             )
           })}

@@ -1,5 +1,5 @@
 import { CanvasTexture, MeshBasicMaterial, MeshStandardMaterial, SRGBColorSpace, type Material } from "three"
-import { bodiesOverlap, validateDrop } from "@compass/physics"
+import { bodiesOverlap, DEFAULT_MIN_SUPPORT_PCT, isDirectional, nextQuarterTurn, validateDrop } from "@compass/physics"
 import { boxFitsContour, type SolverEquipment } from "@compass/solver"
 import { applyDropPosition, itemToPiece, unitToWorld } from "@/lib/cargo-physics"
 import { faceCanvasSize, layoutLabel, type MeasureText } from "@/lib/cargo-label"
@@ -301,8 +301,9 @@ export function tryPlaceItem(
   item: PlanItemView,
   items: PlanItemView[],
   unit: PlanUnitView,
+  minSupportRatio: number = DEFAULT_MIN_SUPPORT_PCT / 100,
 ): PlanItemView | null {
-  return tryDragItem(item, items, unit)
+  return tryDragItem(item, items, unit, "iso", minSupportRatio)
 }
 
 export function tryDragItem(
@@ -310,6 +311,8 @@ export function tryDragItem(
   items: PlanItemView[],
   unit: PlanUnitView,
   view: "iso" | "top" | "side" | "front" = "iso",
+  /** The share of support the planner works with; the project's value, never a number of this file's own. */
+  minSupportRatio: number = DEFAULT_MIN_SUPPORT_PCT / 100,
 ): PlanItemView | null {
   const desired = stackForView(item, items, view)
   const result = validateDrop(
@@ -319,7 +322,7 @@ export function tryDragItem(
     { x: desired.x, y: desired.y, z: desired.z },
     {
       clampToWalls: true,
-      minSupportRatio: 0.7,
+      minSupportRatio,
       maxPayloadKg: unit.maxPayloadKg > 0 ? unit.maxPayloadKg : null,
       strictMode: true,
     },
@@ -378,12 +381,20 @@ function alignOn(pos: number, size: number, base: number, baseSize: number): num
   return base + Math.max(0, (baseSize - size) / 2)
 }
 
+/**
+ * One quarter turn about the vertical (clockwise from above). A piece whose clearance is the same on
+ * every side only ever alternates between its two footprints, as before. A piece with directional
+ * clearance goes through all four facings, because which way it faces decides which wall or
+ * neighbour gets which allowance.
+ */
 export function rotateItemFlat(item: PlanItemView): PlanItemView {
+  const directional = item.clearance ? isDirectional(item.clearance) : false
+  const next = directional ? nextQuarterTurn(item.rotation) : null
   return {
     ...item,
     lengthCm: item.widthCm,
     widthCm: item.lengthCm,
-    rotation: item.rotation === "LWH" ? "WLH" : "LWH",
+    rotation: next ?? (item.rotation === "LWH" ? "WLH" : "LWH"),
   }
 }
 

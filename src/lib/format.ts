@@ -1,3 +1,4 @@
+import { formatLengthIn, LENGTH_UNIT_SYMBOL, type LengthUnit } from "@/lib/cargo-units"
 export const DIMENSION_COLORS = {
   length: "#d4a017",
   width: "#2563eb",
@@ -9,8 +10,8 @@ const lengthFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }
 const weightFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
 const costFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
 
-export function formatCm(value: number): string {
-  return `${lengthFormat.format(value)} cm`
+export function formatCm(value: number, unit: LengthUnit = "cm"): string {
+  return unit === "cm" ? `${lengthFormat.format(value)} cm` : formatLengthIn(value, unit)
 }
 
 export function formatKg(value: number): string {
@@ -21,8 +22,10 @@ export function formatCost(value: number): string {
   return costFormat.format(value)
 }
 
-export function formatEnvelope(lengthCm: number, widthCm: number, heightCm: number): string {
-  return `${lengthFormat.format(lengthCm)} × ${lengthFormat.format(widthCm)} × ${lengthFormat.format(heightCm)} cm`
+export function formatEnvelope(lengthCm: number, widthCm: number, heightCm: number, unit: LengthUnit = "cm"): string {
+  if (unit === "cm") return `${lengthFormat.format(lengthCm)} × ${lengthFormat.format(widthCm)} × ${lengthFormat.format(heightCm)} cm`
+  const part = (cm: number) => formatLengthIn(cm, unit).replace(` ${LENGTH_UNIT_SYMBOL[unit]}`, "")
+  return `${part(lengthCm)} × ${part(widthCm)} × ${part(heightCm)} ${LENGTH_UNIT_SYMBOL[unit]}`
 }
 
 const volumeFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 })

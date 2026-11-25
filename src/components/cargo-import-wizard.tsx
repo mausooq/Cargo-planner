@@ -1,5 +1,6 @@
 "use client"
 
+import { LENGTH_UNIT_LABEL } from "@/lib/cargo-units"
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react"
 import type { EquipmentMode } from "@compass/domain"
 import { AlertTriangle, FileUp, Loader2, Sparkles } from "lucide-react"
@@ -14,6 +15,7 @@ import {
   CARGO_IMPORT_FIELDS,
   LENGTH_UNITS,
   missingRequiredFields,
+  suggestLengthUnit,
   suggestMapping,
   WEIGHT_UNITS,
   type CargoImportField,
@@ -72,6 +74,8 @@ export function CargoImportWizard({
   const [extracted, setExtracted] = useState<ExtractedCargo | null>(null)
   const [columns, setColumns] = useState<Record<string, CargoImportField>>({})
   const [lengthUnit, setLengthUnit] = useState<LengthUnit>("cm")
+  // Where the length unit came from, so the planner can see whether it was read from the file or is their own choice.
+  const [unitSource, setUnitSource] = useState<"titles" | "none" | "conflict" | "chosen">("none")
   const [weightUnit, setWeightUnit] = useState<WeightUnit>("kg")
   const [templateName, setTemplateName] = useState("")
   const [reading, setReading] = useState<"sheet" | "document" | null>(null)
@@ -114,7 +118,12 @@ export function CargoImportWizard({
         return
       }
       setSheet(result.sheet)
-      setColumns(suggestMapping(result.sheet.headers))
+      const suggested = suggestMapping(result.sheet.headers)
+      setColumns(suggested)
+      // A unit written in the size column titles ("Length (ft)") is evidence; nothing else is guessed.
+      const unitHint = suggestLengthUnit(result.sheet.headers, suggested)
+      setUnitSource(unitHint.source)
+      if (unitHint.unit) setLengthUnit(unitHint.unit)
     } catch {
       toast.error("Could not read the file. Check your connection and try again.")
       reset()
@@ -221,6 +230,7 @@ export function CargoImportWizard({
     const template = templates.find((entry) => entry.id === templateId)
     if (!template || !sheet) return
     setLengthUnit(template.mapping.lengthUnit)
+    setUnitSource("chosen")
     setWeightUnit(template.mapping.weightUnit)
     setColumns((current) => {
       const next = { ...current }
@@ -439,14 +449,26 @@ export function CargoImportWizard({
                   <select
                     className="h-9 rounded-md border bg-background px-2"
                     value={lengthUnit}
-                    onChange={(event) => setLengthUnit(event.target.value as LengthUnit)}
+                    onChange={(event) => {
+                      setLengthUnit(event.target.value as LengthUnit)
+                      setUnitSource("chosen")
+                    }}
                   >
                     {LENGTH_UNITS.map((unit) => (
                       <option key={unit} value={unit}>
-                        {unit === "in" ? "inch" : unit === "m" ? "meter" : unit}
+                        {LENGTH_UNIT_LABEL[unit]}
                       </option>
                     ))}
                   </select>
+                  <span className="block max-w-64 text-xs text-muted-foreground">
+                    {unitSource === "titles"
+                      ? "Read from the size column titles."
+                      : unitSource === "conflict"
+                        ? "The size columns name different units, so none was chosen for you. Pick the unit the numbers are in."
+                        : unitSource === "chosen"
+                          ? "Plain numbers are read in this unit. A unit written in a cell (4 ft, 1200 mm, 5'6\") is read as written."
+                          : "No unit was found in the column titles, so plain numbers are read in this unit. Check it before importing."}
+                  </span>
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="block text-muted-foreground">Weight unit</span>

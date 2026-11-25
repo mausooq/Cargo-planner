@@ -6,12 +6,14 @@ import {
   type Orientation,
 } from "@compass/domain"
 import { z } from "zod"
+import { fromDisplayLength, LENGTH_UNITS, lengthUnitFromWord, parseLength, roundStoredCm, type LengthUnit } from "@/lib/cargo-units"
 
-export const LENGTH_UNITS = ["cm", "mm", "in", "m"] as const
+// Length units and conversion live in cargo-units.ts, shared with the Cargo grid and the exports.
+export { LENGTH_UNITS }
+export type { LengthUnit }
 export const WEIGHT_UNITS = ["kg", "lb"] as const
 export const lengthUnitSchema = z.enum(LENGTH_UNITS)
 export const weightUnitSchema = z.enum(WEIGHT_UNITS)
-export type LengthUnit = z.infer<typeof lengthUnitSchema>
 export type WeightUnit = z.infer<typeof weightUnitSchema>
 
 export const CARGO_IMPORT_FIELDS = [
@@ -176,10 +178,7 @@ export type ImportPreview = {
 }
 
 export function toCentimetres(value: number, unit: LengthUnit): number {
-  if (unit === "cm") return round4(value)
-  if (unit === "mm") return round4(value / 10)
-  if (unit === "m") return round4(value * 100)
-  return round4(value * 2.54)
+  return roundStoredCm(fromDisplayLength(value, unit))
 }
 
 export function toKilograms(value: number, unit: WeightUnit): number {
@@ -191,12 +190,46 @@ export function suggestMapping(headers: string[]): Record<string, CargoImportFie
   const used = new Set<CargoImportField>()
   const columns: Record<string, CargoImportField> = {}
   for (const header of headers) {
-    const alias = FIELD_ALIASES[normalizeHeader(header)]
+    const alias = FIELD_ALIASES[normalizeHeader(header)] ?? readDimensionHeader(header)?.field
     if (!alias || used.has(alias)) continue
     used.add(alias)
     columns[header] = alias
   }
   return columns
+}
+
+type DimensionField = "length" | "width" | "height"
+
+const DIMENSION_HEADER = /^(length|len|l|width|w|height|h)(?: (mm|millimet(?:re|er)s?|cm|centimet(?:re|er)s?|m|met(?:re|er)s?|in|inch|inches|ft|feet|foot))?$/
+const DIMENSION_OF: Record<string, DimensionField> = { length: "length", len: "length", l: "length", width: "width", w: "width", height: "height", h: "height" }
+
+/** A size column title such as "Length (mm)", "W ft" or "Height - inches": which size it is and the unit it names, if it names one. */
+export function readDimensionHeader(header: string): { field: DimensionField; unit: LengthUnit | null } | null {
+  const match = DIMENSION_HEADER.exec(normalizeHeader(header).replace(/[-–:]/g, " ").replace(/\s+/g, " ").trim())
+  if (!match) return null
+  const field = DIMENSION_OF[match[1]!]
+  if (!field) return null
+  return { field, unit: match[2] ? lengthUnitFromWord(match[2]) : null }
+}
+
+/**
+ * The unit the size columns say they are in. Only a unit written in the titles counts: when none
+ * says one nothing is assumed (the planner chooses), and when they disagree nothing is chosen for them.
+ */
+export function suggestLengthUnit(
+  headers: string[],
+  columns: Record<string, CargoImportField>,
+): { unit: LengthUnit | null; source: "titles" | "none" | "conflict" } {
+  const found = new Set<LengthUnit>()
+  for (const header of headers) {
+    const field = columns[header]
+    if (field !== "length" && field !== "width" && field !== "height") continue
+    const unit = readDimensionHeader(header)?.unit
+    if (unit) found.add(unit)
+  }
+  if (found.size === 0) return { unit: null, source: "none" }
+  if (found.size > 1) return { unit: null, source: "conflict" }
+  return { unit: [...found][0]!, source: "titles" }
 }
 
 export function missingRequiredFields(columns: Record<string, CargoImportField>): CargoImportField[] {
@@ -268,9 +301,9 @@ function readRow(
   }
 
   let failed = false
-  const length = requiredNumber(cell("length"), rowNumber, "length", issues)
-  const width = requiredNumber(cell("width"), rowNumber, "width", issues)
-  const height = requiredNumber(cell("height"), rowNumber, "height", issues)
+  const length = requiredLength(cell("length"), mapping.lengthUnit, rowNumber, "length", issues)
+  const width = requiredLength(cell("width"), mapping.lengthUnit, rowNumber, "width", issues)
+  const height = requiredLength(cell("height"), mapping.lengthUnit, rowNumber, "height", issues)
   const weight = requiredNumber(cell("weight"), rowNumber, "weight", issues)
   const sku = emptyToNull(cell("sku"))
   const name = cell("name").trim() || sku || ""
@@ -307,9 +340,9 @@ function readRow(
   return {
     sku,
     name,
-    lengthCm: toCentimetres(length, mapping.lengthUnit),
-    widthCm: toCentimetres(width, mapping.lengthUnit),
-    heightCm: toCentimetres(height, mapping.lengthUnit),
+    lengthCm: length,
+    widthCm: width,
+    heightCm: height,
     weightKg: toKilograms(weight, mapping.weightUnit),
     quantity,
     shape,
@@ -325,6 +358,25 @@ function readRow(
     segregationClass: emptyToNull(cell("segregationClass")),
     color: emptyToNull(cell("color")),
   }
+}
+
+/**
+ * A size cell, as centimetres. A plain number is in the mapping's unit; a unit written in the cell
+ * (4 ft, 1200 mm, 5'6") is read as that unit, since it says so itself. Nothing is guessed: with no
+ * unit in the cell the chosen unit applies. Thousands separators (1,200) are still accepted.
+ */
+function requiredLength(raw: string, unit: LengthUnit, rowNumber: number, field: string, issues: ImportIssue[]): number | null {
+  const text = raw.trim().replace(/(\d),(?=\d{3}(?!\d))/g, "$1")
+  const parsed = parseLength(text, unit)
+  if (!parsed.ok) {
+    issues.push({ rowNumber, field, message: text === "" ? "Enter a number greater than zero." : parsed.reason })
+    return null
+  }
+  if (parsed.cm <= 0) {
+    issues.push({ rowNumber, field, message: "Enter a number greater than zero." })
+    return null
+  }
+  return parsed.cm
 }
 
 function requiredNumber(raw: string, rowNumber: number, field: string, issues: ImportIssue[]): number | null {
