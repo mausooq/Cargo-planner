@@ -1,5 +1,6 @@
 import { resolveMinSupportRatio } from "@compass/physics"
 import type { SolverCargo, SolverContour, SolverEquipment, SolverInput } from "@compass/solver"
+import type { CargoItemInput } from "@compass/domain"
 import type { CargoLine } from "@/components/cargo-grid"
 import type { EquipmentListItem } from "@/lib/equipment-catalog"
 import { hasContourCuts, resolveEquipmentContour, type UldContour } from "@/lib/uld-contour"
@@ -26,7 +27,39 @@ export function buildSolverInput(input: {
     contour: toSolverContour(resolveEquipmentContour(item.name, item.contour)),
   }))
 
-  const cargo: SolverCargo[] = input.cargo.map((item) => ({
+  const cargo: SolverCargo[] = input.cargo.map(toSolverCargo)
+
+  return {
+    equipment,
+    cargo,
+    settings: {
+      seed: input.seed ?? 1,
+      objective: input.objective,
+      timeLimitMs: 4000,
+      restarts: 16,
+      // Always the resolved value, so the packer judges support by the same share as the Playground and the server.
+      minSupportRatio: resolveMinSupportRatio(input.minSupportPct),
+    },
+  }
+}
+
+export function toSolverContour(contour: UldContour | null): SolverContour | null {
+  if (!contour || !hasContourCuts(contour)) return null
+  return {
+    bottomLeft: mmToCm(contour.bottomLeft),
+    bottomRight: mmToCm(contour.bottomRight),
+    topLeft: mmToCm(contour.topLeft),
+    topRight: mmToCm(contour.topRight),
+  }
+}
+
+function mmToCm(side: { lengthMm: number; heightMm: number }) {
+  return { lengthCm: side.lengthMm / 10, heightCm: side.heightMm / 10 }
+}
+
+/** A cargo line as the packer sees it. Shared by the load plan and the remaining-capacity analysis. */
+export function toSolverCargo(item: CargoItemInput & { id: string }): SolverCargo {
+  return {
     id: item.id,
     name: item.name,
     lengthCm: item.lengthCm,
@@ -46,32 +79,5 @@ export function buildSolverInput(input: {
     consignmentId: item.consignmentId,
     segregationClass: item.segregationClass,
     color: item.color,
-  }))
-
-  return {
-    equipment,
-    cargo,
-    settings: {
-      seed: input.seed ?? 1,
-      objective: input.objective,
-      timeLimitMs: 4000,
-      restarts: 16,
-      // Always the resolved value, so the packer judges support by the same share as the Playground and the server.
-      minSupportRatio: resolveMinSupportRatio(input.minSupportPct),
-    },
   }
-}
-
-function toSolverContour(contour: UldContour | null): SolverContour | null {
-  if (!contour || !hasContourCuts(contour)) return null
-  return {
-    bottomLeft: mmToCm(contour.bottomLeft),
-    bottomRight: mmToCm(contour.bottomRight),
-    topLeft: mmToCm(contour.topLeft),
-    topRight: mmToCm(contour.topRight),
-  }
-}
-
-function mmToCm(side: { lengthMm: number; heightMm: number }) {
-  return { lengthCm: side.lengthMm / 10, heightCm: side.heightMm / 10 }
 }

@@ -11,9 +11,10 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import { Prisma } from "@prisma/client"
-import { confirmEstimatedWeights, importReviewedCargo, updateCargoItem } from "@/app/actions/cargo"
+import { confirmEstimatedWeights, importCargoRows, importReviewedCargo, updateCargoItem } from "@/app/actions/cargo"
 import { cargoPreset } from "@/lib/cargo-defaults"
 import { prisma } from "@/lib/prisma"
+import { cargoToAdd, extraCargoInput } from "@/lib/remaining-capacity"
 import { requireUser } from "@/lib/session"
 
 // Synthetic data only; the database is mocked.
@@ -95,5 +96,32 @@ describe("confirming estimated weights", () => {
     vi.mocked(requireUser).mockResolvedValue({ id: "u", role: "VIEWER", orgId: "o", orgName: "O", name: "N", email: "e@x" } as never)
     expect(await confirmEstimatedWeights("p1", ["c1"])).toMatchObject({ ok: false })
     expect(db.cargoItem.update).not.toHaveBeenCalled()
+  })
+})
+
+describe("adding checked extra cargo to the cargo list", () => {
+  const extra = { name: "Pallet", lengthCm: 120, widthCm: 80, heightCm: 100, weightKg: 300, quantity: 2, stackable: false, bottomOnly: false, orientation: "FIXED" as const }
+
+  it("saves it through the existing cargo validation", async () => {
+    const result = await importCargoRows("p1", [extraCargoInput(extra)])
+    expect(result).toEqual({ ok: true, count: 1 })
+    expect(db.cargoItem.createMany.mock.calls[0]![0]!.data).toEqual([expect.objectContaining({ name: "Pallet", quantity: 2, stackable: false, weightKg: 300 })])
+  })
+
+  it("saves only the fitted quantity after a partial fit", async () => {
+    const toAdd = cargoToAdd({ placed: 1, extra: { ...extra, quantity: 4 } })!
+    await importCargoRows("p1", [toAdd])
+    expect(db.cargoItem.createMany.mock.calls[0]![0]!.data).toEqual([expect.objectContaining({ quantity: 1 })])
+  })
+
+  it("refuses what the cargo validation refuses, and saves nothing", async () => {
+    const result = await importCargoRows("p1", [extraCargoInput({ ...extra, lengthCm: -5 })])
+    expect(result).toMatchObject({ ok: false })
+    expect(db.cargoItem.createMany).not.toHaveBeenCalled()
+  })
+
+  it("is refused for a viewer", async () => {
+    vi.mocked(requireUser).mockResolvedValue({ id: "u", role: "VIEWER", orgId: "o", orgName: "O", name: "N", email: "e@x" } as never)
+    expect(await importCargoRows("p1", [extraCargoInput(extra)])).toMatchObject({ ok: false })
   })
 })

@@ -1,6 +1,6 @@
-import { snapBoxToContour } from "./contour"
+import { boxFitsContour, snapBoxToContour } from "./contour"
 import { contains, EPS, intersects, orientationsFor, overlapArea, volume, type Box, type Dims } from "./geometry"
-import { axleLoads, axleViolation } from "./metrics"
+import { axleLoads, axleViolation, centreOfGravity } from "./metrics"
 import { computeUnitMetrics } from "./unit-metrics"
 import type { Placement, SolverCargo, SolverEquipment, SolverSettings, UnitMetrics, UnloadedReason } from "./types"
 
@@ -20,6 +20,35 @@ type Placed = Box & {
 }
 
 export type Rejection = { reason: UnloadedReason; detail: string }
+
+/** A piece of an existing plan, put back exactly where it is. */
+export type PreloadPiece = { id: string; instance: Instance; box: Box; rotation: string }
+
+export type PreloadProblemCode =
+  | "OUTSIDE"
+  | "OVERLAP"
+  | "UNSUPPORTED"
+  | "ON_NOT_STACKABLE"
+  | "HEAVIER_ON_TOP"
+  | "FLOOR_ONLY"
+  | "STACK_LAYERS"
+  | "STACK_LOAD"
+  | "SEGREGATION"
+  | "OVER_PAYLOAD"
+  | "AXLE_LIMIT"
+  | "UNKNOWN_CARGO"
+
+/** A rule an existing piece breaks where it stands. `pieceId` is null for a whole-unit problem. */
+export type PreloadProblem = {
+  pieceId: string | null
+  code: PreloadProblemCode
+  message: string
+  /** A violation breaks a rule the plan must keep. A note is the packer's own preference (heavier below), which a hand-arranged layout may ignore. */
+  severity: "violation" | "note"
+}
+
+/** How far two pieces may run into each other, or past a wall, before it counts: plan positions are rounded to 1 mm. */
+const PRELOAD_TOLERANCE_CM = 0.5
 
 /**
  * One container being filled with the maximal-spaces heuristic.
@@ -126,6 +155,85 @@ export class Unit {
     this.propagateLoad(placed, cargo.weightKg)
     this.splitSpaces(best.box)
     return null
+  }
+
+  /**
+   * Puts the pieces of an existing plan back exactly where they are, without moving or refusing any of them,
+   * so further pieces can be tried around them with `tryPlace`. Every rule `tryPlace` enforces is checked
+   * on the way and each breach is returned: a plan with problems still loads, but whatever is added to it
+   * cannot be called validated. Call it once, on an empty unit.
+   */
+  preload(pieces: PreloadPiece[]): PreloadProblem[] {
+    const problems: PreloadProblem[] = []
+    const tol = PRELOAD_TOLERANCE_CM
+    const equipment = this.equipment
+    const order = pieces.slice().sort((a, b) => a.box.z - b.box.z || a.box.x - b.box.x || a.box.y - b.box.y)
+    for (const piece of order) {
+      const { box, instance } = piece
+      const cargo = instance.cargo
+      const name = cargo.name || "A piece"
+      const report = (code: PreloadProblemCode, message: string) =>
+        problems.push({ pieceId: piece.id, code, message, severity: code === "HEAVIER_ON_TOP" ? "note" : "violation" })
+
+      const outside =
+        box.x < -tol ||
+        box.y < -tol ||
+        box.z < -tol ||
+        box.x + box.l > equipment.lengthCm + tol ||
+        box.y + box.w > equipment.widthCm + tol ||
+        box.z + box.h > equipment.heightCm + tol ||
+        !boxFitsContour(shrink(box, tol), equipment)
+      if (outside) report("OUTSIDE", `${name} is outside the inner space of ${equipment.name}.`)
+      const clash = this.placed.find((other) => overlapDepth(other, box) > tol)
+      if (clash) report("OVERLAP", `${name} runs into ${clash.instance.cargo.name || "another piece"}.`)
+
+      const supporters: Placed[] = []
+      let layer = 1
+      if (box.z > tol) {
+        if (cargo.bottomOnly) report("FLOOR_ONLY", `${name} must stand on the floor.`)
+        const footprint = box.l * box.w
+        let supported = 0
+        for (const below of this.placed) {
+          if (Math.abs(below.z + below.h - box.z) > tol) continue
+          const area = overlapArea(below, box)
+          if (area <= EPS) continue
+          supporters.push(below)
+          supported += area
+          layer = Math.max(layer, below.layer + 1)
+          const under = below.instance.cargo
+          if (!under.stackable) report("ON_NOT_STACKABLE", `${name} stands on ${under.name || "a piece"}, which nothing may be stacked on.`)
+          if (this.settings.heavierBelow && cargo.weightKg > under.weightKg + EPS) report("HEAVIER_ON_TOP", `${name} is heavier than ${under.name || "the piece"} under it.`)
+          if (!this.canCarry(below, (area / footprint) * cargo.weightKg)) report("STACK_LOAD", `${name} puts more weight on ${under.name || "the piece"} under it than it may carry.`)
+        }
+        const share = footprint > 0 ? supported / footprint : 0
+        if (share + EPS < this.settings.minSupportRatio) {
+          report("UNSUPPORTED", `${name} has ${Math.round(share * 100)}% of its base supported; at least ${Math.round(this.settings.minSupportRatio * 100)}% is needed.`)
+        }
+        if (cargo.maxStackLayers !== null && layer > cargo.maxStackLayers) report("STACK_LAYERS", `${name} is in layer ${layer}; its limit is ${cargo.maxStackLayers}.`)
+      }
+      if (cargo.segregationClass && this.conflicts(cargo.segregationClass)) report("SEGREGATION", `${name} may not share a unit with the classes already in it.`)
+
+      const placed: Placed = { ...box, instance, rotation: piece.rotation, layer, loadAbove: 0, supporters, sequence: this.placed.length + 1 }
+      this.placed.push(placed)
+      this.netKg += cargo.weightKg
+      if (cargo.segregationClass) this.classes.add(cargo.segregationClass)
+      this.propagateLoad(placed, cargo.weightKg)
+      this.splitSpaces(box)
+    }
+    if (this.netKg > equipment.maxPayloadKg + EPS) {
+      problems.push({ pieceId: null, code: "OVER_PAYLOAD", severity: "violation", message: `The cargo in ${equipment.name} is over its payload by ${Math.round(this.netKg - equipment.maxPayloadKg)} kg.` })
+    }
+    if (equipment.axleGroups.length > 0 && this.placed.length > 0) {
+      const cog = centreOfGravity(this.placed.map((item) => ({ x: item.x + item.l / 2, y: item.y + item.w / 2, z: item.z + item.h / 2, kg: item.instance.cargo.weightKg })))
+      const violation = axleViolation(axleLoads(equipment.axleGroups, this.netKg, cog.x))
+      if (violation !== null) problems.push({ pieceId: null, code: "AXLE_LIMIT", severity: "violation", message: `An axle group of ${equipment.name} is estimated over its limit.` })
+    }
+    return problems
+  }
+
+  /** The free spaces the packer would try next (maximal spaces; they may overlap). Copies. */
+  freeSpaces(): Box[] {
+    return this.spaces.map((space) => ({ ...space }))
   }
 
   placements(unitIndex: number): Placement[] {
@@ -259,6 +367,18 @@ export class Unit {
     }
     this.spaces = kept.length > 1500 ? kept.slice(0, 1500) : kept
   }
+}
+
+function shrink(box: Box, by: number): Box {
+  return { x: box.x + by, y: box.y + by, z: box.z + by, l: Math.max(0, box.l - 2 * by), w: Math.max(0, box.w - 2 * by), h: Math.max(0, box.h - 2 * by) }
+}
+
+/** How deep two boxes run into each other: the smallest overlap along any axis (0 when apart or only touching). */
+function overlapDepth(a: Box, b: Box): number {
+  const dx = Math.min(a.x + a.l, b.x + b.l) - Math.max(a.x, b.x)
+  const dy = Math.min(a.y + a.w, b.y + b.w) - Math.max(a.y, b.y)
+  const dz = Math.min(a.z + a.h, b.z + b.h) - Math.max(a.z, b.z)
+  return Math.max(0, Math.min(dx, dy, dz))
 }
 
 function compareSpaces(a: Box, b: Box): number {

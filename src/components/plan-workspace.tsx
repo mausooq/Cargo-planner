@@ -4,7 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import type { PlannerStep } from "@compass/domain"
 import Link from "next/link"
 import { createPortal } from "react-dom"
-import { FileSpreadsheet, Printer } from "lucide-react"
+import { FileSpreadsheet, Loader2, Printer } from "lucide-react"
 import { resolveMinSupportPct } from "@compass/physics"
 import { useEditorSettings } from "@/lib/editor-settings"
 import { toast } from "sonner"
@@ -19,6 +19,7 @@ import { DragSettingsPanel } from "@/components/drag-settings"
 import { LoadViewer, PIECE_DRAG_TYPE, type ViewerCamera } from "@/components/load-viewer"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PlanDiagram } from "@/components/plan-diagram"
+import { RemainingCapacityPanel } from "@/components/remaining-capacity"
 import { Button } from "@/components/ui/button"
 import type { EquipmentListItem } from "@/lib/equipment-catalog"
 import { applyGravity } from "@/lib/cargo-gravity"
@@ -89,6 +90,8 @@ export const PlanWorkspace = forwardRef<
 ) {
   const [plan, setPlan] = useState<PlanView | null>(initialPlan)
   const [busy, setBusy] = useState(false)
+  // True from the moment a calculation starts until it ends, so a second request is ignored.
+  const calculating = useRef(false)
   const [progress, setProgress] = useState<string | null>(null)
   const [progressPct, setProgressPct] = useState(0)
   const [selected, setSelected] = useState(0)
@@ -153,6 +156,7 @@ export const PlanWorkspace = forwardRef<
    * Packs the cargo and saves the plan. Failing at any step leaves the previous plan exactly as it was.
    */
   async function calculate(options: { estimatesConfirmed?: boolean } = {}) {
+    if (calculating.current) return false
     lastError.current = null
     setCalcFailed(false)
     if (equipment.length === 0) {
@@ -176,6 +180,7 @@ export const PlanWorkspace = forwardRef<
       const left = cargo.length - planned.length
       toast.warning(`${left} incomplete cargo line${left === 1 ? " was" : "s were"} left out of the plan. Complete ${left === 1 ? "it" : "them"} in Data.`)
     }
+    calculating.current = true
     setBusy(true)
     setProgress("Packing…")
     setProgressPct(0)
@@ -237,6 +242,7 @@ export const PlanWorkspace = forwardRef<
       toast.error(lastError.current)
       return false
     } finally {
+      calculating.current = false
       setBusy(false)
       setProgress(null)
     }
@@ -253,6 +259,8 @@ export const PlanWorkspace = forwardRef<
   }
 
   const hasPlanNow = Boolean(plan && plan.units.length > 0)
+  // The plan no longer matches the cargo: its figures are the previous calculation, and the banner offers the recalculation.
+  const outOfDate = stale && hasPlanNow
   const planStatus = useMemo(
     () => derivePlanStatus({ hasPlan: hasPlanNow, calculating: busy, stale, failed: calcFailed }),
     [busy, calcFailed, hasPlanNow, stale],
@@ -274,6 +282,7 @@ export const PlanWorkspace = forwardRef<
         <div className="text-sm text-muted-foreground">
           {totals ? (
             <span>
+              {outOfDate ? <span className="font-medium text-foreground">Previous calculation: </span> : null}
               {totals.pieces} pieces loaded · {totals.units} unit{totals.units === 1 ? "" : "s"} · {formatKg(totals.kg)} ·{" "}
               {formatM3(totals.volume)}
               {plan && plan.unloaded.length > 0 ? ` · ${plan.unloaded.length} not loaded` : ""}
@@ -297,7 +306,7 @@ export const PlanWorkspace = forwardRef<
               </Button>
             </>
           ) : null}
-          {canEdit ? (
+          {canEdit && !outOfDate ? (
             <Button
               type="button"
               size="sm"
@@ -311,18 +320,25 @@ export const PlanWorkspace = forwardRef<
         </div>
       </div>
 
-      {stale && plan && plan.units.length > 0 ? (
+      {outOfDate && plan ? (
         <div
           role="status"
           className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
         >
           <span>
-            The cargo changed after this plan was calculated. Recalculate so the plan includes the changes
-            {plan.layoutSource === "MANUAL" ? ". Your hand-arranged layout will be replaced, and you are asked first" : ""}.
+            <span className="font-medium">Cargo updated — recalculation required.</span> Recalculate to update your load plan and remaining capacity.
+            {plan.layoutSource === "MANUAL" ? " Your hand-arranged layout will be replaced, and you are asked first." : ""}
           </span>
           {canEdit ? (
-            <Button type="button" size="sm" onClick={requestRecalculate} disabled={busy}>
-              Recalculate now
+            <Button type="button" size="sm" onClick={requestRecalculate} disabled={busy} aria-busy={busy}>
+              {busy ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  {progress ?? "Calculating…"}
+                </>
+              ) : (
+                "Recalculate now"
+              )}
             </Button>
           ) : null}
         </div>
@@ -403,8 +419,10 @@ export const PlanWorkspace = forwardRef<
         <EmptyPlan unloaded={plan?.unloaded ?? []} canEdit={canEdit} onEditStep={onEditStep} />
       ) : variant === "workspace" ? (
         <>
+          {outOfDate ? <p className="text-xs font-medium text-muted-foreground">Previous calculation results (before the cargo was updated)</p> : null}
           <WorkspaceTable units={plan.units} selected={selectedIndex} onSelect={setSelected} />
           <UnloadedList unloaded={plan.unloaded} onEditStep={onEditStep} />
+          <RemainingCapacityPanel plan={plan} cargo={cargo} minSupportPct={minSupportPct} canEdit={canEdit} stale={stale} onAddCargo={onEditStep ? () => onEditStep("data") : undefined} />
         </>
       ) : (
         unit && (

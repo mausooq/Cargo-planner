@@ -10,12 +10,15 @@ export function PlanDiagram({
   view,
   className,
   bare = false,
+  proposed = [],
 }: {
   unit: PlanUnitView
   view: "top" | "side" | "front"
   className?: string
   /** Hide the Front / Doors captions (for small thumbnails). */
   bare?: boolean
+  /** Pieces that are only proposed (not part of the plan), drawn as see-through dashed outlines. */
+  proposed?: { x: number; y: number; z: number; lengthCm: number; widthCm: number; heightCm: number }[]
 }) {
   const pad = bare ? 6 : 24
   // Horizontal extent: length for top and side, width when looking in from the doors.
@@ -100,6 +103,21 @@ export function PlanDiagram({
           </g>
         )
       })}
+      {proposed.map((item, index) => (
+        <rect
+          key={`proposed-${index}`}
+          x={pad + (view === "front" ? item.y : item.x)}
+          y={view === "top" ? pad + item.y : pad + (unit.heightCm - item.z - item.heightCm)}
+          width={view === "front" ? item.widthCm : item.lengthCm}
+          height={view === "top" ? item.widthCm : item.heightCm}
+          fill="#0ea5e9"
+          fillOpacity={0.12}
+          stroke="#0284c7"
+          strokeWidth={Math.max(1, width / 500)}
+          strokeDasharray={`${Math.max(4, width / 120)} ${Math.max(3, width / 200)}`}
+          data-proposed=""
+        />
+      ))}
       {!bare && view !== "front" ? (
       <>
       <text x={pad} y={pad - 8} fontSize={font * 0.8} fill="#475569" fontFamily="ui-sans-serif, system-ui, sans-serif">
