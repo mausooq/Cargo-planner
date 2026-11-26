@@ -4,7 +4,8 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import type { PlannerStep } from "@compass/domain"
 import Link from "next/link"
 import { createPortal } from "react-dom"
-import { AlertTriangle, Boxes, Calculator, CheckCircle2, Container, FileSpreadsheet, Gauge as GaugeIcon, Info, Loader2, Package, Printer, Scale, ShieldCheck, XCircle } from "lucide-react"
+import { useTheme } from "next-themes"
+import { AlertTriangle, Box, Boxes, Calculator, CheckCircle2, Container, FileSpreadsheet, Gauge as GaugeIcon, Hand, Info, Loader2, Maximize2, Minimize2, Package, Printer, RotateCcw, Save, Scale, ShieldCheck, XCircle } from "lucide-react"
 import { resolveMinSupportPct } from "@compass/physics"
 import { useEditorSettings } from "@/lib/editor-settings"
 import { toast } from "sonner"
@@ -143,16 +144,6 @@ export const PlanWorkspace = forwardRef<
     }
   }
 
-  const totals = useMemo(() => {
-    if (!plan) return null
-    return {
-      pieces: plan.units.reduce((sum, entry) => sum + entry.pieces, 0),
-      units: plan.units.length,
-      kg: plan.units.reduce((sum, entry) => sum + entry.netKg, 0),
-      volume: plan.units.reduce((sum, entry) => sum + entry.volumeM3, 0),
-    }
-  }, [plan])
-
   /**
    * Packs the cargo and saves the plan. Failing at any step leaves the previous plan exactly as it was.
    */
@@ -279,76 +270,57 @@ export const PlanWorkspace = forwardRef<
 
   return (
     <div className="relative min-h-48 space-y-4">
-      {variant === "workspace" ? (
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-4">
-            <IconTile icon={Calculator} tint="mint" size="lg" />
-            <div className="min-w-0">
-              <h2 className="text-page-title">Calculate &amp; Optimisation</h2>
-              <p className="mt-1 text-page-desc text-muted-foreground">Pack the cargo into the selected equipment, check the result and see the space that is left.</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusPill tone={PLAN_TONE[planStatus.tone]}>{planStatus.label}</StatusPill>
-            {/* One Recalculate button at a time: while the plan is out of date, it lives in the warning banner. */}
-            {canEdit && !outOfDate ? (
-              <Button type="button" className="press h-11 rounded-xl px-5 text-button shadow-soft" onClick={requestRecalculate} disabled={busy} aria-busy={busy}>
-                {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Calculator className="size-4" aria-hidden="true" />}
-                {busy ? progress ?? "Calculating…" : plan ? "Recalculate" : "Calculate load plan"}
-              </Button>
-            ) : null}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <IconTile icon={variant === "workspace" ? Calculator : Box} tint="mint" size="lg" />
+          <div className="min-w-0">
+            <h2 className="text-page-title">{variant === "workspace" ? <>Calculate &amp; Optimisation</> : "Final Load Plan"}</h2>
+            <p className="mt-1 text-page-desc text-muted-foreground">
+              {variant === "workspace"
+                ? "Pack the cargo into the selected equipment, check the result and see the space that is left."
+                : "The cargo arrangement in 3D, unit by unit, with its utilisation and the details of every piece."}
+            </p>
           </div>
         </div>
-      ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2.5">
-          <div className="text-sm text-muted-foreground">
-            {totals ? (
-              <span>
-                {outOfDate ? <span className="font-medium text-foreground">Previous calculation: </span> : null}
-                {totals.pieces} pieces loaded · {totals.units} unit{totals.units === 1 ? "" : "s"} · {formatKg(totals.kg)} ·{" "}
-                {formatM3(totals.volume)}
-                {plan && plan.unloaded.length > 0 ? ` · ${plan.unloaded.length} not loaded` : ""}
-              </span>
-            ) : (
-              <span>No plan yet. Calculate to pack the cargo into the selected equipment.</span>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {variant === "plan" && plan && plan.units.length > 0 ? (
-              <>
-                <Button type="button" size="sm" variant="outline" onClick={() => void exportExcel()} disabled={exporting}>
-                  <FileSpreadsheet className="size-3.5" />
-                  {exporting ? "Preparing…" : "Excel"}
-                </Button>
-                <Button asChild size="sm" variant="outline">
-                  <Link href={`/projects/${projectId}/report`}>
-                    <Printer className="size-3.5" />
-                    Print / PDF
-                  </Link>
-                </Button>
-              </>
-            ) : null}
-            {canEdit && !outOfDate ? (
-              <Button
-                type="button"
-                size="sm"
-                variant={plan && variant === "plan" ? "outline" : "default"}
-                onClick={requestRecalculate}
-                disabled={busy}
-              >
-                {busy ? progress ?? "Calculating…" : plan ? "Recalculate" : "Calculate load plan"}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <StatusPill tone={PLAN_TONE[planStatus.tone]}>{planStatus.label}</StatusPill>
+          {variant === "plan" && plan && plan.units.length > 0 ? (
+            <>
+              <Button type="button" variant="outline" className="press h-11 rounded-xl bg-card px-4 text-button shadow-soft" onClick={() => void exportExcel()} disabled={exporting}>
+                <FileSpreadsheet className="size-4" />
+                {exporting ? "Preparing…" : "Excel"}
               </Button>
-            ) : null}
-          </div>
+              <Button asChild variant="outline" className="press h-11 rounded-xl bg-card px-4 text-button shadow-soft">
+                <Link href={`/projects/${projectId}/report`}>
+                  <Printer className="size-4" />
+                  Print / PDF
+                </Link>
+              </Button>
+            </>
+          ) : null}
+          {/* One Recalculate button at a time: while the plan is out of date, it lives in the warning banner. */}
+          {canEdit && !outOfDate ? (
+            <Button
+              type="button"
+              variant={plan && variant === "plan" ? "outline" : "default"}
+              className={cn("press h-11 rounded-xl px-5 text-button shadow-soft", variant === "plan" && "bg-card")}
+              onClick={requestRecalculate}
+              disabled={busy}
+              aria-busy={busy}
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Calculator className="size-4" aria-hidden="true" />}
+              {busy ? progress ?? "Calculating…" : plan ? "Recalculate" : "Calculate load plan"}
+            </Button>
+          ) : null}
         </div>
-      )}
+      </div>
 
       {outOfDate && plan ? (
         <div
           role="status"
           className={cn(
             "flex flex-wrap items-center justify-between gap-2 border border-amber-500/50 text-amber-900 dark:text-amber-200",
-            variant === "workspace" ? "pastel-amber rounded-[var(--radius-card)] border-[var(--pc-border)] bg-[var(--pc-bg)] px-4 py-3 text-detail shadow-soft" : "rounded-md bg-amber-50 px-3 py-2 text-sm dark:bg-amber-500/10",
+            "pastel-amber rounded-[var(--radius-card)] border-[var(--pc-border)] bg-[var(--pc-bg)] px-4 py-3 text-detail shadow-soft",
           )}
         >
           <span>
@@ -356,7 +328,7 @@ export const PlanWorkspace = forwardRef<
             {plan.layoutSource === "MANUAL" ? " Your hand-arranged layout will be replaced, and you are asked first." : ""}
           </span>
           {canEdit ? (
-            <Button type="button" size="sm" className={cn(variant === "workspace" && "press h-10 rounded-xl px-4 text-button")} onClick={requestRecalculate} disabled={busy} aria-busy={busy}>
+            <Button type="button" size="sm" className="press h-10 rounded-xl px-4 text-button" onClick={requestRecalculate} disabled={busy} aria-busy={busy}>
               {busy ? (
                 <>
                   <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -451,7 +423,6 @@ export const PlanWorkspace = forwardRef<
               Previous calculation results, from before the cargo was updated
             </p>
           ) : null}
-          <CalcSummaryCards plan={plan} stale={outOfDate} />
           <div className="grid items-start gap-5 xl:grid-cols-2">
             <CalcStatusPanel plan={plan} cargo={cargo} status={planStatus} />
             <UtilisationPanel units={plan.units} stale={outOfDate} />
@@ -463,6 +434,13 @@ export const PlanWorkspace = forwardRef<
       ) : (
         unit && (
           <>
+            {outOfDate ? (
+              <p className="flex items-center gap-2 text-meta font-semibold text-amber-800 dark:text-amber-300">
+                <AlertTriangle className="size-4" aria-hidden="true" />
+                Previous calculation results, from before the cargo was updated
+              </p>
+            ) : null}
+            <CalcSummaryCards plan={plan} stale={outOfDate} />
             <UnitPicker units={plan.units} selected={selectedIndex} onSelect={openUnit} />
             <div className="relative">
             <LoadPlanDetail
@@ -475,6 +453,7 @@ export const PlanWorkspace = forwardRef<
               unitCount={plan.units.length}
               warnings={plan.warnings}
               unloaded={plan.unloaded}
+              planUnits={plan.units}
               planCurrent={!stale}
               projectMinSupportPct={minSupportPct}
               layoutSource={plan.layoutSource ?? "AUTO"}
@@ -634,7 +613,7 @@ function UnitPicker({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Containers in this load plan">
-      <span className="text-sm text-muted-foreground">Looking at</span>
+      <span className="text-label text-muted-foreground">Viewing unit</span>
       {units.map((unit, index) => {
         const active = selected === index
         return (
@@ -645,11 +624,13 @@ function UnitPicker({
             aria-selected={active}
             onClick={() => onSelect(index)}
             className={cn(
-              "rounded-md border px-3 py-1.5 text-sm",
-              active ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-muted",
+              "press inline-flex h-10 items-center gap-2 rounded-xl border px-4 text-button outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+              active ? "border-primary bg-primary text-primary-foreground shadow-soft" : "border-white/70 bg-white/70 text-foreground hover:border-primary/50 dark:border-white/10 dark:bg-white/5",
             )}
           >
+            <Container className="size-4" aria-hidden="true" />
             {index + 1}. {unit.equipmentName}
+            <span className={cn("rounded-full px-1.5 text-xs font-semibold", active ? "bg-white/20" : "bg-muted text-muted-foreground")}>{unit.pieces}</span>
           </button>
         )
       })}
@@ -666,6 +647,7 @@ function LoadPlanDetail({
   unitCount,
   warnings,
   unloaded,
+  planUnits,
   planCurrent,
   projectMinSupportPct,
   layoutSource,
@@ -682,6 +664,8 @@ function LoadPlanDetail({
   unitCount: number
   warnings: string[]
   unloaded: PlanView["unloaded"]
+  /** Every unit of the plan, for the overall figures next to this unit's own. */
+  planUnits: PlanUnitView[]
   /** False when the saved plan is out of date: the piece list then shows what was calculated, not today's cargo list. */
   planCurrent: boolean
   projectMinSupportPct: number | null
@@ -707,6 +691,19 @@ function LoadPlanDetail({
   const editorSettings = useEditorSettings()
   const lengthUnit = useLengthUnit()
   const dragging = useRef(false)
+  // The 3D scene cannot read CSS variables, so it gets the same neutral as --viewer-bg from the theme. Only the
+  // canvas uses this (it is drawn in the browser only); page elements use the CSS variable, so server and browser agree.
+  const { resolvedTheme } = useTheme()
+  const viewerBg = resolvedTheme === "dark" ? "#1b2128" : "#edf2f4"
+  const viewport = useRef<HTMLDivElement>(null)
+  // Bumping the key remounts the viewer, which puts the camera back where it starts.
+  const [cameraKey, setCameraKey] = useState(0)
+  const [fullscreen, setFullscreen] = useState(false)
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === viewport.current && viewport.current !== null)
+    document.addEventListener("fullscreenchange", onChange)
+    return () => document.removeEventListener("fullscreenchange", onChange)
+  }, [])
 
   // The project's minimum support share is the one source: the Playground starts from it.
   useEffect(() => {
@@ -1025,67 +1022,36 @@ function LoadPlanDetail({
     </>
   )
 
+  // Saved numbers when nothing was changed, the live recalculation while editing. Both come from the same
+  // function, so they agree for the same layout.
+  const edited = dirty ? " (edited)" : ""
+  const m = dirty
+    ? live
+    : { netKg: unit.netKg, weightPct: unit.weightPct, volumeM3: unit.volumeM3, volumePct: unit.volumePct, floorPct: unit.floorPct, remainingKg: unit.remainingKg, remainingM3: unit.remainingM3 }
+  const unitM3 = (unit.lengthCm * unit.widthCm * unit.heightCm) / 1_000_000
+  const unitM2 = (unit.lengthCm * unit.widthCm) / 10_000
+  const loadedAll = planUnits.reduce((sum, entry) => sum + entry.pieces, 0)
+  const requestedAll = loadedAll + unloaded.length
+  const findings: { tone: "warning" | "danger"; text: string }[] = []
+  if (!planCurrent) findings.push({ tone: "warning", text: "Out of date: the cargo changed after this calculation. Recalculate on the Calculate step." })
+  if (unloaded.length > 0) findings.push({ tone: "danger", text: `${unloaded.length} of ${requestedAll} pieces could not be loaded.` })
+  for (const warning of warnings) findings.push({ tone: "warning", text: warning })
+  if (dirty) findings.push({ tone: "warning", text: aside.length > 0 ? `${aside.length} piece${aside.length === 1 ? " is" : "s are"} set aside in the playground.` : "The layout was changed and is not saved yet." })
+  const complete = findings.length === 0
+  const cameras = [
+    ["iso", "3D view"],
+    ["top", "Top"],
+    ["side", "Right side"],
+    ["front", "Front"],
+  ] as const
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void viewport.current?.requestFullscreen?.()
+  }
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-xs text-muted-foreground">
-            Unit {unitNumber} of {unitCount}
-          </p>
-          <h2 className="text-base font-semibold">{unit.equipmentName}</h2>
-        </div>
-        <dl className="flex flex-wrap gap-2 text-sm">
-          {(() => {
-            // Saved numbers when nothing was changed, the live recalculation while editing. Both come
-            // from the same function, so they agree for the same layout.
-            const edited = dirty ? " (edited)" : ""
-            const m = dirty
-              ? live
-              : {
-                  netKg: unit.netKg,
-                  weightPct: unit.weightPct,
-                  volumeM3: unit.volumeM3,
-                  volumePct: unit.volumePct,
-                  floorPct: unit.floorPct,
-                  remainingKg: unit.remainingKg,
-                  remainingM3: unit.remainingM3,
-                }
-            return (
-              <>
-                <Metric label={`Weight${edited}`} value={`${formatKg(m.netKg)} · ${formatPct(m.weightPct)}`} />
-                <Metric label={`Volume${edited}`} value={`${formatM3(m.volumeM3)} · ${formatPct(m.volumePct)}`} />
-                <Metric label={`Floor utilization${edited}`} value={formatPct(m.floorPct)} title={FLOOR_HELP} />
-                <Metric
-                  label={`Remaining${edited}`}
-                  value={`${formatKg(m.remainingKg)} · ${formatM3(m.remainingM3)}`}
-                  title="Payload and volume still free in this unit. A negative weight means the payload limit is exceeded."
-                />
-              </>
-            )
-          })()}
-        </dl>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-card px-3 py-2">
-        <Button type="button" size="sm" onClick={() => setPlayground(true)}>
-          Playground
-        </Button>
-        {dirty && canEdit && aside.length === 0 ? (
-          <Button type="button" size="sm" variant="outline" onClick={() => void saveLayout()} disabled={saving}>
-            {saving ? "Saving…" : "Save layout"}
-          </Button>
-        ) : null}
-        <p className={cn("text-xs", aside.length > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
-          {aside.length > 0
-            ? `${aside.length} piece${aside.length === 1 ? " is" : "s are"} set aside. Open the playground to add ${aside.length === 1 ? "it" : "them"} back before saving.`
-            : dirty
-              ? "Layout changed. Save to keep it."
-              : layoutSource === "MANUAL"
-                ? "Hand-arranged layout: it is not repacked automatically. Open playground to move cargo."
-                : "Open playground to move cargo."}
-        </p>
-      </div>
-
+    <div className="space-y-5">
       {/* Portalled to <body> so no parent style (animations, transforms, overflow) can trap the full-screen view. */}
       {playground && typeof document !== "undefined" ? createPortal(
         <div className="fixed inset-0 z-50 flex flex-col bg-background">
@@ -1135,116 +1101,259 @@ function LoadPlanDetail({
         document.body,
       ) : null}
 
-      {/* While the playground is open, its own 3D view replaces this one: only one live 3D scene at a time. */}
-      {playground ? (
-        <div className="flex h-[32rem] items-center justify-center rounded-md border border-dashed bg-card text-sm text-muted-foreground">
-          Editing in the playground…
-        </div>
-      ) : (
-        <LoadViewer
-          unit={liveUnit}
-          camera={view}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-          className="h-[32rem] overflow-hidden rounded-md border bg-white"
-        />
-      )}
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        {/* The 3D view: the main focus of the step. */}
+        <section aria-label={`3D view of ${unit.equipmentName}`} className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--suggest-border)] shadow-soft" style={{ background: "var(--util-bg)" }}>
+          <div className="flex flex-wrap items-center gap-2 px-4 pt-3.5 pb-3">
+            <div className="flex rounded-xl border border-white/70 bg-white/60 p-1 dark:border-white/10 dark:bg-white/5" role="group" aria-label="Camera">
+              {cameras.map(([camera, label]) => (
+                <button
+                  key={camera}
+                  type="button"
+                  aria-pressed={view === camera}
+                  onClick={() => setView(camera)}
+                  className={cn(
+                    "press h-8 rounded-lg px-3 text-[13px] font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                    view === camera ? "bg-primary text-primary-foreground shadow-soft" : "text-[var(--table-head-fg)] hover:bg-white/80 dark:hover:bg-white/10",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="icon" className="press size-9 rounded-xl bg-white/70 dark:bg-white/5" onClick={() => {
+                setView("iso")
+                setCameraKey((key) => key + 1)
+              }} aria-label="Reset the camera" title="Reset the camera">
+                <RotateCcw className="size-4" />
+              </Button>
+              <Button type="button" variant="outline" size="icon" className="press size-9 rounded-xl bg-white/70 dark:bg-white/5" onClick={toggleFullscreen} disabled={playground} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"} title={fullscreen ? "Exit fullscreen" : "Fullscreen"}>
+                {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+              </Button>
+              <Button type="button" className="press h-9 rounded-xl px-4 text-button shadow-soft" onClick={() => setPlayground(true)}>
+                <Hand className="size-4" />
+                Playground
+              </Button>
+              {dirty && canEdit && aside.length === 0 ? (
+                <Button type="button" variant="outline" className="press h-9 rounded-xl bg-card px-4 text-button" onClick={() => void saveLayout()} disabled={saving}>
+                  <Save className="size-4" />
+                  {saving ? "Saving…" : "Save layout"}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          {/* While the playground is open, its own 3D view replaces this one: only one live 3D scene at a time. */}
+          <div ref={viewport} className={cn("relative mx-3 overflow-hidden rounded-xl border border-white/70 dark:border-white/10", fullscreen ? "h-screen" : "h-[36rem]")} style={{ background: "var(--viewer-bg)" }}>
+            {playground ? (
+              <div className="flex h-full items-center justify-center text-detail text-muted-foreground">Editing in the playground…</div>
+            ) : (
+              <LoadViewer key={cameraKey} unit={liveUnit} camera={view} selectedId={selectedId} onSelect={setSelectedId} background={viewerBg} className="h-full w-full" />
+            )}
+            {fullscreen ? (
+              <Button type="button" variant="outline" className="absolute top-3 right-3 h-9 rounded-xl bg-card/90 px-3 text-button" onClick={toggleFullscreen}>
+                <Minimize2 className="size-4" />
+                Exit fullscreen
+              </Button>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-4 py-3 text-meta">
+            <span className="flex items-center gap-2">
+              <span className="size-3.5 rounded-sm bg-primary/80" aria-hidden="true" />
+              In this unit ({items.length})
+            </span>
+            {aside.length > 0 ? (
+              <span className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                <span className="size-3.5 rounded-sm border-2 border-dashed border-amber-500" aria-hidden="true" />
+                Set aside ({aside.length})
+              </span>
+            ) : null}
+            <span className={cn("flex items-center gap-2", unloaded.length > 0 && "font-semibold text-red-700 dark:text-red-400")}>
+              <span className="size-3.5 rounded-sm bg-[var(--step-line)]" aria-hidden="true" />
+              Not loaded ({unloaded.length})
+            </span>
+            <span className="ml-auto text-muted-foreground">Drag to rotate · scroll to zoom · click a piece to select it</span>
+          </div>
+          <p className={cn("border-t border-white/60 px-4 py-2.5 text-meta dark:border-white/10", aside.length > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
+            {aside.length > 0
+              ? `${aside.length} piece${aside.length === 1 ? " is" : "s are"} set aside. Open the playground to add ${aside.length === 1 ? "it" : "them"} back before saving.`
+              : dirty
+                ? "Layout changed. Save to keep it."
+                : layoutSource === "MANUAL"
+                  ? "Hand-arranged layout: it is not repacked automatically. Open playground to move cargo."
+                  : "Open playground to move cargo."}
+          </p>
+        </section>
+
+        {/* Load summary: this unit's figures, with the plan's state. */}
+        <aside aria-label="Load summary" className="space-y-4 rounded-[var(--radius-card)] border border-[var(--suggest-border)] p-4 shadow-soft" style={{ background: "var(--util-bg)" }}>
+          <div className="flex items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/75 text-[var(--table-head-fg)] shadow-soft dark:bg-white/10">
+              <Container className="size-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-[17px] leading-6 font-bold text-[var(--table-head-fg)]">Load summary</h3>
+              <p className="text-meta text-[var(--table-head-fg)]/80">
+                Unit {unitNumber} of {unitCount}: {unit.equipmentName}
+              </p>
+            </div>
+          </div>
+
+          {complete ? (
+            <div className="pastel-mint flex items-start gap-2.5 rounded-xl border border-[var(--pc-border)] bg-[var(--pc-bg)] px-3.5 py-3">
+              <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-[var(--pc-accent)]" aria-hidden="true" />
+              <div>
+                <p className="text-[15px] font-bold text-[var(--pc-accent)]">Load plan is complete</p>
+                <p className="text-meta text-muted-foreground">All {requestedAll} requested pieces are loaded, with no warnings.</p>
+              </div>
+            </div>
+          ) : (
+            <ul className={cn("space-y-1.5 rounded-xl border px-3.5 py-3", findings.some((entry) => entry.tone === "danger") ? "border-[var(--status-bad-border)]" : "border-[var(--status-warn-border)]")} style={{ background: findings.some((entry) => entry.tone === "danger") ? "var(--status-bad-bg)" : "var(--status-warn-bg)" }}>
+              {findings.map((finding, index) => (
+                <li key={`${finding.text}-${index}`} className="flex items-start gap-2 text-meta">
+                  {finding.tone === "danger" ? <XCircle className="mt-0.5 size-4 shrink-0 text-red-600 dark:text-red-400" aria-hidden="true" /> : <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />}
+                  <span>{finding.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <dl className="divide-y divide-white/70 rounded-xl bg-white/45 text-detail dark:divide-white/10 dark:bg-white/5">
+            {(
+              [
+                ["Equipment", `${unit.equipmentName}`],
+                ["Pieces in this unit", `${items.length}`],
+                ["Loaded, whole plan", `${loadedAll} / ${requestedAll}`],
+                [`Gross weight${edited}`, formatKg(m.netKg)],
+                [`Cargo volume${edited}`, formatM3(m.volumeM3)],
+                [`Remaining${edited}`, `${formatKg(m.remainingKg)} · ${formatM3(m.remainingM3)}`],
+              ] as const
+            ).map(([label, value]) => (
+              <div key={label} className="flex items-baseline justify-between gap-3 px-3.5 py-2">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className={cn("text-right font-semibold tabular-nums", label === "Loaded, whole plan" && unloaded.length > 0 && "text-red-700 dark:text-red-400")}>{value}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <div>
+            <p className="mb-2 text-label text-[var(--table-head-fg)]">This unit&apos;s utilisation{edited}</p>
+            <div className="grid grid-cols-3 gap-2">
+              <GaugeSurface tone="lavender" compact>
+                <Gauge accent="var(--pastel-lavender-accent)" track="var(--gauge-weight-track)" compact label="Weight" pct={m.weightPct} used={formatKg(m.netKg)} total={formatKg(unit.maxPayloadKg)} />
+              </GaugeSurface>
+              <GaugeSurface tone="blue" compact>
+                <Gauge accent="var(--pastel-blue-accent)" track="var(--gauge-volume-track)" compact label="Volume" pct={m.volumePct} used={formatM3(m.volumeM3)} total={formatM3(unitM3)} />
+              </GaugeSurface>
+              <GaugeSurface tone="mint" compact>
+                <Gauge accent="var(--pastel-mint-accent)" track="var(--gauge-floor-track)" compact label="Floor" pct={m.floorPct} used={`${((m.floorPct / 100) * unitM2).toLocaleString("en-US", { maximumFractionDigits: 1 })} m²`} total={`${unitM2.toLocaleString("en-US", { maximumFractionDigits: 1 })} m²`} />
+              </GaugeSurface>
+            </div>
+            {planUnits.length > 1 ? <p className="mt-2 text-xs text-muted-foreground">For this unit only. The Calculate step shows all units combined.</p> : null}
+          </div>
+
+          {unit.axleLoads.length > 0 ? (
+            <div title={AXLE_ESTIMATE_NOTE}>
+              <p className="mb-1.5 text-label text-[var(--table-head-fg)]">Estimated axle loads</p>
+              <ul className="divide-y divide-white/70 rounded-xl bg-white/45 text-meta dark:divide-white/10 dark:bg-white/5">
+                {unit.axleLoads.map((axle) => (
+                  <li key={axle.name} className={cn("flex justify-between px-3.5 py-2", axle.kg > axle.maxKg && "font-semibold text-destructive")}>
+                    <span>{axle.name}</span>
+                    <span className="tabular-nums">
+                      {formatKg(axle.kg)} / {formatKg(axle.maxKg)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs text-muted-foreground">{AXLE_ESTIMATE_NOTE}</p>
+            </div>
+          ) : null}
+        </aside>
+      </div>
 
       {/* Flat 2D drawings (no WebGL): instant even for hundreds of pieces. Click one to turn the 3D camera to match. */}
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-3">
         {(
           [
-            ["top", "top", "Top"],
-            ["side", "side", "Right side"],
-            ["front", "front", "From the doors"],
+            ["top", "top", "Top view"],
+            ["side", "side", "Right side view"],
+            ["front", "front", "View from the doors"],
           ] as const
         ).map(([camera, diagram, label]) => (
           <button
             key={camera}
             type="button"
             aria-pressed={view === camera}
+            title="Show this view in 3D"
             className={cn(
-              "flex h-36 flex-col overflow-hidden rounded-xl border bg-white text-left hover:border-primary/60",
-              view === camera && "ring-2 ring-primary",
+              "flex flex-col overflow-hidden rounded-[var(--radius-card)] border border-[var(--table-border)] bg-card text-left shadow-soft outline-none transition-[box-shadow,border-color] duration-200 ease-out hover:border-primary/50 hover:shadow-lift focus-visible:ring-[3px] focus-visible:ring-ring/40",
+              view === camera && "border-primary ring-2 ring-primary/30",
             )}
             onClick={() => setView(camera)}
           >
-            <p className="px-2 pt-1 text-xs text-neutral-500">{label}</p>
-            <PlanDiagram unit={liveUnit} view={diagram} bare className="min-h-0 w-full flex-1" />
+            <span className="bg-table-head flex items-center justify-between border-b border-[var(--table-border)] px-4 py-2.5 text-[14px] font-bold text-[var(--table-head-fg)]">
+              {label}
+              {view === camera ? <span className="text-xs font-semibold text-primary dark:text-[var(--step-done-fg)]">In 3D view</span> : null}
+            </span>
+            <span className="flex h-44 items-center p-2" style={{ background: "var(--viewer-bg)" }}>
+              <PlanDiagram unit={liveUnit} view={diagram} bare className="max-h-full min-h-0 w-full" />
+            </span>
           </button>
         ))}
       </div>
 
-      {unit.axleLoads.length > 0 ? (
-        <ul className="grid gap-2 rounded-md border bg-card p-3 text-sm sm:grid-cols-2" title={AXLE_ESTIMATE_NOTE}>
-          {unit.axleLoads.map((axle) => (
-            <li key={axle.name} className={cn("flex justify-between", axle.kg > axle.maxKg && "text-destructive")}>
-              <span>{axle.name}</span>
-              <span>
-                {formatKg(axle.kg)} / {formatKg(axle.maxKg)}
-              </span>
-            </li>
-          ))}
-          <li className="text-xs text-muted-foreground sm:col-span-2">{AXLE_ESTIMATE_NOTE}</li>
-        </ul>
-      ) : null}
+      {unloaded.length > 0 ? <UnloadedList unloaded={unloaded} onEditStep={onEditStep} /> : null}
 
-      {(warnings.length > 0 || unloaded.length > 0) && (
-        <div className="rounded-md border bg-card p-3 text-sm">
-          {warnings.map((warning) => (
-            <p key={warning}>{warning}</p>
-          ))}
-          <UnloadedList unloaded={unloaded} onEditStep={onEditStep} />
+      <SectionCard banded icon={Package} title={`Cargo in ${unit.equipmentName} · loading order`} description="Click a row to select the piece in the 3D view; click a piece to find its row.">
+        <div className="max-h-[32rem] overflow-auto">
+          <table className="data-table w-full min-w-[48rem] text-left text-sm">
+            <thead className="sticky top-0 z-10">
+              <tr>
+                <th className="px-4 text-right">#</th>
+                <th className="px-4">SKU</th>
+                <th className="px-4">Name</th>
+                <th className="px-4 text-right normal-case">{lengthTitle("L", lengthUnit)}</th>
+                <th className="px-4 text-right normal-case">{lengthTitle("W", lengthUnit)}</th>
+                <th className="px-4 text-right normal-case">{lengthTitle("H", lengthUnit)}</th>
+                <th className="px-4 text-right normal-case">kg / piece</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadOrder({ ...unit, items }).map((item, order) => {
+                // The same values, in the same form, as the cargo table in step 1.
+                const values = pieceValues(item, enteredCargo, { planCurrent })
+                const chosen = selectedId === item.id
+                return (
+                  <tr
+                    key={item.id}
+                    className={cn("cursor-pointer border-t", chosen && "bg-[var(--pastel-mint-bg)] hover:bg-[var(--pastel-mint-bg)]")}
+                    onClick={() => setSelectedId(item.id)}
+                    aria-selected={chosen}
+                  >
+                    <td className={cn("px-4 py-2.5 text-right tabular-nums", chosen && "shadow-[inset_3px_0_0_var(--primary)]")}>{order + 1}</td>
+                    <td className="px-4 py-2.5 font-semibold whitespace-nowrap">{values.sku ?? "—"}</td>
+                    <td className="px-4 py-2.5">
+                      <span className="mr-2 inline-block size-2.5 rounded-sm" style={{ background: item.color }} />
+                      {values.name}
+                      {values.turned ? (
+                        <span className="ml-2 rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground" title={turnedTitle(item, values.facing, lengthUnit)}>
+                          Turned
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{formatEnteredLength(values.lengthCm, lengthUnit)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{formatEnteredLength(values.widthCm, lengthUnit)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{formatEnteredLength(values.heightCm, lengthUnit)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{formatEnteredWeight(values.weightKg)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
-      )}
-
-      <div className="overflow-hidden rounded-md border bg-card">
-        <table className="sheet-table w-full text-left text-sm">
-          <thead className="bg-muted/70 text-xs tracking-wide text-muted-foreground uppercase">
-            <tr>
-              <th className="px-3 py-2">#</th>
-              <th className="px-3 py-2">SKU</th>
-              <th className="px-3 py-2">Name</th>
-              <th className="px-3 py-2 normal-case">{lengthTitle("L", lengthUnit)}</th>
-              <th className="px-3 py-2 normal-case">{lengthTitle("W", lengthUnit)}</th>
-              <th className="px-3 py-2 normal-case">{lengthTitle("H", lengthUnit)}</th>
-              <th className="px-3 py-2 normal-case">kg / piece</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loadOrder({ ...unit, items }).map((item, order) => {
-              // The same values, in the same form, as the cargo table in step 1.
-              const values = pieceValues(item, enteredCargo, { planCurrent })
-              return (
-                <tr
-                  key={item.id}
-                  className={cn("cursor-pointer", selectedId === item.id && "bg-secondary/70")}
-                  onClick={() => setSelectedId(item.id)}
-                >
-                  <td className="px-3 py-2">{order + 1}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">{values.sku ?? "—"}</td>
-                  <td className="px-3 py-2">
-                    <span className="mr-2 inline-block size-2.5 rounded-sm" style={{ background: item.color }} />
-                    {values.name}
-                    {values.turned ? (
-                      <span
-                        className="ml-2 rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
-                        title={turnedTitle(item, values.facing, lengthUnit)}
-                      >
-                        Turned
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums">{formatEnteredLength(values.lengthCm, lengthUnit)}</td>
-                  <td className="px-3 py-2 tabular-nums">{formatEnteredLength(values.widthCm, lengthUnit)}</td>
-                  <td className="px-3 py-2 tabular-nums">{formatEnteredLength(values.heightCm, lengthUnit)}</td>
-                  <td className="px-3 py-2 tabular-nums">{formatEnteredWeight(values.weightKg)}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+      </SectionCard>
     </div>
   )
 }
@@ -1495,15 +1604,6 @@ function Stat({ label, value, title }: { label: string; value: string; title?: s
   )
 }
 
-function Metric({ label, value, title }: { label: string; value: string; title?: string }) {
-  return (
-    <div className="min-w-28 rounded-lg border bg-card px-3 py-2 shadow-card" title={title}>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-semibold tabular-nums">{value}</dd>
-    </div>
-  )
-}
-
 const PLAN_TONE: Record<PlanStatus["tone"], PillTone> = { neutral: "neutral", action: "info", warning: "warning", success: "success", danger: "warning" }
 
 /** The calculation in four figures, from the plan as it is (requested pieces are the loaded ones plus those that did not fit). */
@@ -1667,12 +1767,13 @@ function UtilisationPanel({ units, stale }: { units: PlanUnitView[]; stale: bool
 }
 
 /** A rounded pastel tile behind one gauge, in the tone of its accent. */
-function GaugeSurface({ tone, children }: { tone: "lavender" | "blue" | "mint"; children: ReactNode }) {
+function GaugeSurface({ tone, children, compact = false }: { tone: "lavender" | "blue" | "mint"; children: ReactNode; compact?: boolean }) {
   return (
     <div
       className={cn(
         tone === "lavender" ? "pastel-lavender" : tone === "blue" ? "pastel-blue" : "pastel-mint",
-        "rounded-xl border border-[var(--pc-border)] bg-[var(--pc-bg)] px-3 pt-4 pb-3 transition-[transform,box-shadow,border-color] duration-200 ease-out motion-safe:hover:-translate-y-0.5 hover:border-[var(--pc-accent)]/50 hover:shadow-lift",
+        compact ? "px-1.5 pt-3 pb-2" : "px-3 pt-4 pb-3",
+        "rounded-xl border border-[var(--pc-border)] bg-[var(--pc-bg)] transition-[transform,box-shadow,border-color] duration-200 ease-out motion-safe:hover:-translate-y-0.5 hover:border-[var(--pc-accent)]/50 hover:shadow-lift",
       )}
     >
       {children}

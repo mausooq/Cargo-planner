@@ -13,9 +13,12 @@ export function AddToProjectDialog({
   equipmentTypeId,
   equipmentName,
   projects,
+  triggerClassName,
 }: {
   equipmentTypeId: string
   equipmentName: string
+  /** Extra classes for the button that opens the dialog. */
+  triggerClassName?: string
   projects: ProjectOption[]
 }) {
   const router = useRouter()
@@ -43,7 +46,7 @@ export function AddToProjectDialog({
 
   return (
     <>
-      <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>
+      <Button type="button" size="sm" variant="outline" className={triggerClassName} onClick={() => setOpen(true)}>
         Add to project
       </Button>
       {open ? (

@@ -2,17 +2,16 @@
 
 import { forwardRef, useImperativeHandle, useMemo, useState, type ComponentType, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, Boxes, Calculator, Check, Container, DoorOpen, Hash, Layers, LayoutGrid, ListChecks, Minus, Package, Plus, RotateCcw, Ruler, Scale, Search, Sparkles, Truck, Weight, X } from "lucide-react"
+import { AlertTriangle, Boxes, Calculator, Check, Container, DoorOpen, Hash, Layers, LayoutGrid, ListChecks, Minus, Plus, RotateCcw, Ruler, Scale, Search, Sparkles, Truck, Weight, X } from "lucide-react"
 import { modeLabel, type EquipmentMode } from "@compass/domain"
 import { toast } from "sonner"
 import { setProjectEquipment } from "@/app/actions/projects"
 import type { CargoLine } from "@/components/cargo-grid"
-import { FilterChip, FOCUS_RING, IconTile, SectionCard, StatusPill, SummaryCard, TRANSPORT_ICON, TRANSPORT_TINT } from "@/components/design-system"
+import { FilterChip, FOCUS_RING, IconTile, SectionCard, StatusPill, TRANSPORT_ICON, TRANSPORT_TINT } from "@/components/design-system"
 import { EquipmentSuggestions } from "@/components/equipment-suggestions"
 import { EquipmentViewer } from "@/components/equipment-viewer"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { cargoTotals as sharedCargoTotals } from "@/lib/cargo-validation"
 import type { LengthUnit } from "@/lib/cargo-units"
 import { MODE_ORDER, type EquipmentListItem } from "@/lib/equipment-catalog"
 import { cargoFitsEquipment } from "@/lib/equipment-fit"
@@ -200,8 +199,6 @@ export const EquipmentSetup = forwardRef<
 
   const volumePct = capacity.volume > 0 ? (cargoTotals.volume / (capacity.volume * USABLE_VOLUME)) * 100 : 0
   const weightPct = capacity.weight > 0 ? (cargoTotals.weight / capacity.weight) * 100 : 0
-  const totals = sharedCargoTotals(cargo)
-  const unitCount = units.reduce((sum, entry) => sum + entry.quantity, 0)
   const chosenItems = units.flatMap((entry) => {
     const item = items.find((candidate) => candidate.id === entry.equipmentTypeId)
     return item ? [{ item, quantity: entry.quantity }] : []
@@ -229,19 +226,6 @@ export const EquipmentSetup = forwardRef<
         {dirty ? <StatusPill tone="warning">Unsaved changes</StatusPill> : units.length > 0 ? <StatusPill tone="success">Equipment saved</StatusPill> : null}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard icon={Package} tint="mint" label="Cargo packages" value={totals.pieces.toLocaleString("en-US")} hint={`${cargo.length} complete cargo line${cargo.length === 1 ? "" : "s"}`} />
-        <SummaryCard icon={Scale} tint="lavender" label="Total gross weight" value={formatKg(totals.weightKg)} hint="Across all pieces" />
-        <SummaryCard icon={Boxes} tint="blue" label="Total cargo volume" value={formatM3(totals.volumeM3)} hint="Across all pieces" />
-        <SummaryCard
-          icon={Container}
-          tint="amber"
-          label="Selected equipment"
-          value={unitCount}
-          hint={units.length === 0 ? "Nothing selected yet" : `${units.length} type${units.length === 1 ? "" : "s"}${dirty ? " · not saved yet" : ""}`}
-          tone={units.length === 0 || dirty ? "warning" : "neutral"}
-        />
-      </div>
 
       <EquipmentSuggestions
         cargo={cargo}

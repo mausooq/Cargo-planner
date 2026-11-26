@@ -337,7 +337,7 @@ export function SectionCard({
  * A semicircular gauge for a share of a capacity: the arc fills to `pct` (red past 100%), with the value in the
  * middle and "used / total" below. The fill animates once on entry (off under reduced motion).
  */
-export function Gauge({ pct, label, used, total, accent, track = "var(--step-line)" }: { pct: number; label: string; used?: string; total?: string; accent: string; track?: string }) {
+export function Gauge({ pct, label, used, total, accent, track = "var(--step-line)", compact = false }: { pct: number; label: string; used?: string; total?: string; accent: string; track?: string; compact?: boolean }) {
   const r = 52
   const length = Math.PI * r
   const shown = Math.max(0, Math.min(100, pct))
@@ -357,14 +357,14 @@ export function Gauge({ pct, label, used, total, accent, track = "var(--step-lin
           style={{ strokeDasharray: length, strokeDashoffset: length * (1 - shown / 100), ["--gauge-from" as string]: `${length}` }}
         />
       </svg>
-      <div className="-mt-11 text-center">
-        <p className="text-[24px] leading-7 font-extrabold tabular-nums" style={{ color: over ? color : undefined }}>
+      <div className={cn("text-center", compact ? "-mt-7" : "-mt-11")}>
+        <p className={cn("font-extrabold tabular-nums", compact ? "text-[15px] leading-5" : "text-[24px] leading-7")} style={{ color: over ? color : undefined }}>
           {Math.round(pct * 10) / 10}%
         </p>
-        <p className="text-label text-muted-foreground">{label}</p>
+        <p className={cn("text-muted-foreground", compact ? "text-xs font-semibold" : "text-label")}>{label}</p>
       </div>
       {used && total ? (
-        <figcaption className="mt-1.5 text-center text-meta tabular-nums">
+        <figcaption className={cn("mt-1.5 text-center tabular-nums", compact ? "text-[11px] leading-4" : "text-meta")}>
           <span className="font-semibold">{used}</span> <span className="text-muted-foreground">/ {total}</span>
         </figcaption>
       ) : null}

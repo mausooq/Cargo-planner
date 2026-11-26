@@ -49,6 +49,9 @@
   --pastel-amber-bg: #fff4df;
   --pastel-amber-border: #efdcb8;
   --pastel-amber-accent: #a16b16;
+  --pastel-teal-bg: #e1efed;
+  --pastel-teal-border: #bcd9d4;
+  --pastel-teal-accent: #2f6f68;
   /* Ocean Lavender data tables. */
   --table-head-bg: linear-gradient(110deg, #d5e9df 0%, #dfe9f7 50%, #e8dff3 100%);
   --table-head-start: #d5e9df;
@@ -72,6 +75,8 @@
   --gauge-weight-track: #dcd1eb;
   --gauge-volume-track: #cedff0;
   --gauge-floor-track: #c8e2d5;
+  /* Neutral surface around 3D and plan drawings. */
+  --viewer-bg: #edf2f4;
   /* Workflow stepper. */
   --step-active: #105b4b;
   --step-done-bg: #d5e9df;
@@ -131,6 +136,9 @@
   --pastel-amber-bg: #32270f;
   --pastel-amber-border: #5a4520;
   --pastel-amber-accent: #f1c878;
+  --pastel-teal-bg: #142d2b;
+  --pastel-teal-border: #24504b;
+  --pastel-teal-accent: #7fcfc4;
   --table-head-bg: linear-gradient(110deg, #1b382f 0%, #1c293b 50%, #29223e 100%);
   --table-head-start: #1b382f;
   --table-head-end: #29223e;
@@ -152,6 +160,7 @@
   --gauge-weight-track: #3e3362;
   --gauge-volume-track: #2b4464;
   --gauge-floor-track: #25503f;
+  --viewer-bg: #1b2128;
   --step-active: #3d8f7a;
   --step-done-bg: #1d3a31;
   --step-done-fg: #8fd1bb;
@@ -330,6 +339,11 @@
   --pc-bg: var(--pastel-amber-bg);
   --pc-border: var(--pastel-amber-border);
   --pc-accent: var(--pastel-amber-accent);
+}
+@utility pastel-teal {
+  --pc-bg: var(--pastel-teal-bg);
+  --pc-border: var(--pastel-teal-border);
+  --pc-accent: var(--pastel-teal-accent);
 }
 @utility pastel-surface {
   border-radius: var(--radius-card);

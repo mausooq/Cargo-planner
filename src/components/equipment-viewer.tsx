@@ -14,10 +14,10 @@ const EquipmentScene = dynamic(
 
 export const SCALE = 0.01
 
-export function EquipmentViewer({ item, className }: { item: ViewerItem; className?: string }) {
+export function EquipmentViewer({ item, className, background }: { item: ViewerItem; className?: string; /** Scene background colour; white unless given. */ background?: string }) {
   return (
     <div className={className ?? "h-72 w-full overflow-hidden rounded-md border bg-white"}>
-      <WebGLGuard>{() => <EquipmentScene item={item} />}</WebGLGuard>
+      <WebGLGuard>{() => <EquipmentScene item={item} background={background} />}</WebGLGuard>
     </div>
   )
 }

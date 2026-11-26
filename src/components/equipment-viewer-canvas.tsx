@@ -29,7 +29,7 @@ export type ViewerItem = Pick<
 
 type ViewPreset = "iso" | "front" | "side" | "top"
 
-export function EquipmentScene({ item }: { item: ViewerItem }) {
+export function EquipmentScene({ item, background = "#ffffff" }: { item: ViewerItem; background?: string }) {
   const lengthUnit = useLengthUnit()
   const [preset, setPreset] = useState<ViewPreset>("iso")
   const [resetToken, setResetToken] = useState(0)
@@ -81,7 +81,7 @@ export function EquipmentScene({ item }: { item: ViewerItem }) {
           camera={{ position: cameraFor("iso", reach, midY), fov: 38 }}
           gl={{ antialias: true }}
         >
-          <color attach="background" args={["#ffffff"]} />
+          <color attach="background" args={[background]} />
           <hemisphereLight args={["#ffffff", "#dfe6ea", 1.35]} />
           <ambientLight intensity={1.5} />
           <directionalLight position={[10, 14, 8]} intensity={1.8} />

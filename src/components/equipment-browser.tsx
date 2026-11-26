@@ -1,16 +1,18 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { ClipboardCopy, Maximize2, Pencil, Plus, Search } from "lucide-react"
+import { ArrowDown, ArrowUp, ClipboardCopy, Download, GitCompareArrows, LayoutList, Layers, Maximize2, Package, Pencil, Plane, Plus, Ruler, Search, Ship, Table2, Truck, Upload } from "lucide-react"
 import { modeLabel, type EquipmentMode } from "@compass/domain"
+import { useTheme } from "next-themes"
 import { toast } from "sonner"
 import { importEquipmentCsv } from "@/app/actions/equipment"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { FOCUS_RING, IconTile, Segmented, StatusPill, TRANSPORT_ICON, TRANSPORT_TINT, type PastelTone } from "@/components/design-system"
 import { EquipmentForm } from "@/components/equipment-form"
+import { SelectMenu } from "@/components/ui/select-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -93,7 +95,11 @@ export function EquipmentBrowser({
   const [importReport, setImportReport] = useState<{ created: number; errors: { row: number; message: string }[] } | null>(null)
   const [importing, setImporting] = useState(false)
   const visibleId = filtered.some((item) => item.id === selectedId) ? selectedId : (filtered[0]?.id ?? null)
-  if (visibleId !== selectedId) setSelectedId(visibleId)
+  // Keep the shared selection in step with what is shown. In an effect, not during render: the store is read by other
+  // components, and updating it while this one renders is a React error. The page already shows `visibleId` meanwhile.
+  useEffect(() => {
+    if (visibleId !== selectedId) setSelectedId(visibleId)
+  }, [visibleId, selectedId, setSelectedId])
   const [trackedSelection, setTrackedSelection] = useState(visibleId)
   if (trackedSelection !== visibleId) {
     setTrackedSelection(visibleId)
@@ -128,12 +134,48 @@ export function EquipmentBrowser({
     items: filtered.filter((item) => item.mode === entry),
   })).filter((group) => group.items.length > 0)
 
+  const categories: { mode: EquipmentMode | "ALL"; label: string; count: number; tone: PastelTone | "teal"; icon: typeof Ship }[] = [
+    { mode: "ALL", label: "All equipment", count: items.length, tone: "mint", icon: Layers },
+    { mode: "SEA", label: modeLabel("SEA"), count: counts.SEA, tone: "blue", icon: Ship },
+    { mode: "AIR", label: modeLabel("AIR"), count: counts.AIR, tone: "lavender", icon: Plane },
+    { mode: "ROAD", label: modeLabel("ROAD"), count: counts.ROAD, tone: "amber", icon: Truck },
+    { mode: "PALLET", label: modeLabel("PALLET"), count: counts.PALLET, tone: "teal", icon: Package },
+  ]
+  const toneClass = { mint: "pastel-mint", blue: "pastel-blue", lavender: "pastel-lavender", amber: "pastel-amber", teal: "pastel-teal" } as const
+  const actionButton = "press h-10 rounded-xl bg-card px-4 text-button shadow-soft"
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_32rem]">
-      <section className="space-y-4">
-        <div className="flex flex-col gap-3 rounded-md border bg-card p-3">
-          <div className="relative">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+    <div className="space-y-5">
+      {/* Category cards: the same mode filter as before, one card per mode with its real count. */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5" role="group" aria-label="Filter by mode">
+        {categories.map((category) => {
+          const Icon = category.icon
+          const on = filters.mode === category.mode
+          return (
+            <button
+              key={category.mode}
+              type="button"
+              aria-pressed={on}
+              onClick={() => patchFilters({ mode: category.mode })}
+              className={cn(toneClass[category.tone], "pastel-surface lift flex min-w-0 items-center gap-3 p-4 text-left", FOCUS_RING, on && "border-[var(--pc-accent)] ring-2 ring-[var(--pc-accent)]/25")}
+            >
+              <span data-tile="" className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-white/75 text-[var(--pc-accent)] shadow-soft dark:bg-white/10">
+                <Icon className="size-5" aria-hidden="true" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[26px] leading-8 font-extrabold tabular-nums">{category.count}</span>
+                <span className="block truncate text-label text-[var(--pc-accent)]">{category.label}</span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Search and filters on the Ocean Lavender band. */}
+      <div className="bg-table-head space-y-3 rounded-[var(--radius-card)] border border-[var(--suggest-border)] p-4 shadow-soft">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-64 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-muted-foreground" />
             <Label htmlFor="equipment-search" className="sr-only">
               Search equipment
             </Label>
@@ -141,273 +183,262 @@ export function EquipmentBrowser({
               id="equipment-search"
               value={filters.query}
               onChange={(event) => patchFilters({ query: event.target.value })}
-              placeholder="Search name, code, or workbook id"
-              className="pl-9"
+              placeholder="Search name, code, or workbook id (press / to search)"
+              className="h-11 rounded-xl bg-card pl-10 text-[15px] shadow-soft"
             />
           </div>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by mode">
-            <FilterChip on={filters.mode === "ALL"} onClick={() => patchFilters({ mode: "ALL" })}>
-              All {items.length}
-            </FilterChip>
-            {MODE_ORDER.map((entry) => (
-              <FilterChip key={entry} on={filters.mode === entry} onClick={() => patchFilters({ mode: entry })}>
-                {modeLabel(entry)} {counts[entry]}
-              </FilterChip>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <RangeField
-              label="Length from (cm)"
-              value={filters.lengthMin}
-              onChange={(lengthMin) => patchFilters({ lengthMin })}
-            />
-            <RangeField
-              label="Length to (cm)"
-              value={filters.lengthMax}
-              onChange={(lengthMax) => patchFilters({ lengthMax })}
-            />
-            <RangeField
-              label="Payload from (kg)"
-              value={filters.payloadMin}
-              onChange={(payloadMin) => patchFilters({ payloadMin })}
-            />
-            <RangeField
-              label="Payload to (kg)"
-              value={filters.payloadMax}
-              onChange={(payloadMax) => patchFilters({ payloadMax })}
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-4">
-            <label className="flex items-center gap-2 text-sm">
+          {canManage ? (
+            <Button type="button" className="press h-11 rounded-xl px-5 text-button shadow-soft" onClick={() => setEditor("create")}>
+              <Plus className="size-4" />
+              Add Equipment
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <RangeField label="Length from (cm)" value={filters.lengthMin} onChange={(lengthMin) => patchFilters({ lengthMin })} />
+          <RangeField label="Length to (cm)" value={filters.lengthMax} onChange={(lengthMax) => patchFilters({ lengthMax })} />
+          <RangeField label="Payload from (kg)" value={filters.payloadMin} onChange={(payloadMin) => patchFilters({ payloadMin })} />
+          <RangeField label="Payload to (kg)" value={filters.payloadMax} onChange={(payloadMax) => patchFilters({ payloadMax })} />
+          <div className="flex h-10 items-center gap-4 px-1">
+            <label className="flex items-center gap-2 text-detail text-[var(--table-head-fg)]">
               <Switch checked={filters.openOnly} onCheckedChange={(openOnly) => patchFilters({ openOnly })} id="open-height" />
               Open height
             </label>
-            <label className="flex items-center gap-2 text-sm">
+            <label className="flex items-center gap-2 text-detail text-[var(--table-head-fg)]">
               <Switch checked={filters.oogOnly} onCheckedChange={(oogOnly) => patchFilters({ oogOnly })} id="oog-only" />
               Out of gauge
             </label>
-            <div className="flex items-center gap-1" role="group" aria-label="List or table">
-              <FilterChip on={filters.view === "list"} onClick={() => patchFilters({ view: "list" })}>
-                List
-              </FilterChip>
-              <FilterChip on={filters.view === "table"} onClick={() => patchFilters({ view: "table" })}>
-                Table
-              </FilterChip>
-            </div>
-            {canManage ? (
-              <Button type="button" size="sm" className="ml-auto" onClick={() => setEditor("create")}>
-                <Plus className="size-3.5" />
-                Add equipment
-              </Button>
-            ) : null}
-            <label className={cn("flex items-center gap-2 text-sm", !canManage && "ml-auto")}>
-              <span className="text-muted-foreground">Sort</span>
-              <select
+          </div>
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <Segmented
+              label="List or table"
+              value={filters.view}
+              onChange={(view) => patchFilters({ view })}
+              options={[
+                { value: "list", label: "List", icon: LayoutList },
+                { value: "table", label: "Table", icon: Table2 },
+              ]}
+            />
+            <div className="flex items-center gap-2">
+              <span className="text-meta text-[var(--table-head-fg)]">Sort by</span>
+              <SelectMenu
+                label="Sort equipment"
                 value={filters.sort}
-                onChange={(event) => {
-                  const sort = event.target.value as LibrarySort
-                  patchFilters({ sort, dir: defaultDir(sort) })
-                }}
-                className="h-8 rounded-md border bg-background px-2 text-sm"
-                aria-label="Sort equipment"
-              >
-                <option value="name">Name</option>
-                <option value="type">Type</option>
-                <option value="length">Length</option>
-                <option value="volume">Volume</option>
-                <option value="payload">Payload</option>
-                <option value="tare">Tare</option>
-                <option value="door">Door</option>
-              </select>
-            </label>
-          </div>
-          <ActiveFilters filters={filters} onPatch={patchFilters} />
-        </div>
-
-        <FitPanel onChange={setFit} />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" variant="outline" onClick={() => downloadEquipmentFile(filtered, "csv")}>
-            Export CSV
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => downloadEquipmentFile(filtered, "xlsx")}>
-            Export XLSX
-          </Button>
-          {canManage ? (
-            <label className="inline-flex cursor-pointer items-center rounded-md border bg-background px-3 text-sm h-8">
-              {importing ? "Importing…" : "Import CSV"}
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="sr-only"
-                disabled={importing}
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  event.target.value = ""
-                  if (file) void importCsv(file, setImporting, setImportReport)
-                }}
+                onChange={(sort) => patchFilters({ sort, dir: defaultDir(sort) })}
+                className="w-40"
+                options={[
+                  { value: "name", label: "Name" },
+                  { value: "type", label: "Type" },
+                  { value: "length", label: "Length" },
+                  { value: "volume", label: "Volume" },
+                  { value: "payload", label: "Payload" },
+                  { value: "tare", label: "Tare" },
+                  { value: "door", label: "Door" },
+                ] as { value: LibrarySort; label: string }[]}
               />
-            </label>
-          ) : null}
-          {compareIds.length > 0 ? (
-            <Link
-              href={`/equipment/compare?ids=${compareIds.join(",")}`}
-              className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-sm text-primary-foreground"
-            >
-              Compare {compareIds.length}
-            </Link>
-          ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="press size-11 rounded-xl bg-card shadow-soft"
+                onClick={() => patchFilters({ dir: filters.dir === "asc" ? "desc" : "asc" })}
+                aria-label={filters.dir === "asc" ? "Ascending; switch to descending" : "Descending; switch to ascending"}
+                title={filters.dir === "asc" ? "Ascending" : "Descending"}
+              >
+                {filters.dir === "asc" ? <ArrowUp className="size-4" /> : <ArrowDown className="size-4" />}
+              </Button>
+            </div>
+          </div>
         </div>
-        {importReport ? (
-          <div className="rounded-md border bg-card p-3 text-sm" aria-live="polite">
-            <p>
-              Created {importReport.created}. {importReport.errors.length} {importReport.errors.length === 1 ? "row" : "rows"} failed.
+        <ActiveFilters filters={filters} onPatch={patchFilters} />
+      </div>
+
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+        <section className="min-w-0 space-y-4">
+          <FitPanel onChange={setFit} />
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="mr-auto text-meta text-muted-foreground">
+              Showing <span className="font-semibold text-foreground">{filtered.length}</span> of {items.length} units
             </p>
-            {importReport.errors.length > 0 ? (
-              <ul className="mt-2 space-y-1 text-destructive">
-                {importReport.errors.map((issue) => (
-                  <li key={`${issue.row}-${issue.message}`}>
-                    Row {issue.row}: {issue.message}
-                  </li>
-                ))}
-              </ul>
+            <Button type="button" variant="outline" className={actionButton} onClick={() => downloadEquipmentFile(filtered, "csv")}>
+              <Download className="size-4" />
+              Export CSV
+            </Button>
+            <Button type="button" variant="outline" className={actionButton} onClick={() => downloadEquipmentFile(filtered, "xlsx")}>
+              <Download className="size-4" />
+              Export XLSX
+            </Button>
+            {canManage ? (
+              <label className={cn("inline-flex cursor-pointer items-center gap-2 border font-semibold hover:bg-secondary", actionButton, importing && "opacity-60")}>
+                <Upload className="size-4" />
+                {importing ? "Importing…" : "Import CSV"}
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="sr-only"
+                  disabled={importing}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    event.target.value = ""
+                    if (file) void importCsv(file, setImporting, setImportReport)
+                  }}
+                />
+              </label>
+            ) : null}
+            {compareIds.length > 0 ? (
+              <Link
+                href={`/equipment/compare?ids=${compareIds.join(",")}`}
+                className="press inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-4 text-button text-primary-foreground shadow-soft hover:bg-primary/90"
+              >
+                <GitCompareArrows className="size-4" />
+                Compare {compareIds.length}
+              </Link>
             ) : null}
           </div>
-        ) : null}
-        <p className="text-sm text-muted-foreground">
-          Showing {filtered.length} of {items.length} sea, air, road, and pallet units · press / to search.
-        </p>
-        {editor === "create" && canManage ? (
-          <EquipmentForm key={equipmentFormKey(null)} onClose={() => setEditor(null)} onSaved={setSelectedId} />
-        ) : null}
-
-        {filtered.length === 0 ? (
-          <div className="rounded-md border border-dashed bg-card px-4 py-8 text-center">
-            <p className="text-sm font-medium">Nothing matches</p>
-            <p className="mt-1 text-sm text-muted-foreground">Clear a filter or search for another name.</p>
-          </div>
-        ) : filters.view === "table" ? (
-          <EquipmentTable
-            items={filtered}
-            selectedId={visibleId}
-            sort={filters.sort}
-            dir={filters.dir}
-            compareIds={compareIds}
-            fit={fit}
-            onCompare={toggleCompare}
-            onSelect={setSelectedId}
-            onSort={(sort) => {
-              if (filters.sort === sort) patchFilters({ dir: filters.dir === "asc" ? "desc" : "asc" })
-              else patchFilters({ sort, dir: defaultDir(sort) })
-            }}
-          />
-        ) : (
-          <div className="space-y-6">
-            {groups.map((group) => (
-              <section key={group.mode} aria-labelledby={`mode-${group.mode}`}>
-                <h2 id={`mode-${group.mode}`} className="mb-2 text-sm font-semibold">
-                  {modeLabel(group.mode)}
-                </h2>
-                <ul className="divide-y overflow-hidden rounded-md border bg-card">
-                  {group.items.map((item) => {
-                    const isSelected = item.id === visibleId
-                    const fits = fit ? cargoFitsEquipment(fit, item) : false
-                    return (
-                      <li key={item.id} className={cn("flex items-stretch", fits && "bg-emerald-50 ring-2 ring-inset ring-emerald-800")}>
-                        <label className="flex items-center px-3">
-                          <input
-                            type="checkbox"
-                            checked={compareIds.includes(item.id)}
-                            onChange={() => toggleCompare(item.id)}
-                            aria-label={`Compare ${item.name}`}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedId(item.id)}
-                          aria-pressed={isSelected}
-                          className={cn(
-                            "flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-muted/70 sm:flex-row sm:items-center sm:justify-between",
-                            isSelected && "bg-muted",
-                          )}
-                        >
-                          <span>
-                            <span className="block font-medium">{item.name}</span>
-                            <span className="text-sm text-muted-foreground">
-                              {formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm, unit)}
-                              {item.heightOpen ? " · open height" : ""}
-                            </span>
-                          </span>
-                          <span className="text-sm text-muted-foreground sm:text-right">
-                            {fits ? <span className="mr-2 font-medium text-emerald-950">Fits</span> : null}
-                            {formatKg(item.maxPayloadKg)} payload
-                            {item.axleGroups.length > 0 ? ` · ${item.axleGroups.length} axle groups` : ""}
-                          </span>
-                        </button>
-                      </li>
-                    )
-                  })}
+          {importReport ? (
+            <div className="rounded-xl border bg-card p-4 text-detail shadow-soft" aria-live="polite">
+              <p>
+                Created {importReport.created}. {importReport.errors.length} {importReport.errors.length === 1 ? "row" : "rows"} failed.
+              </p>
+              {importReport.errors.length > 0 ? (
+                <ul className="mt-2 space-y-1 text-destructive">
+                  {importReport.errors.map((issue) => (
+                    <li key={`${issue.row}-${issue.message}`}>
+                      Row {issue.row}: {issue.message}
+                    </li>
+                  ))}
                 </ul>
-              </section>
-            ))}
-          </div>
-        )}
-      </section>
+              ) : null}
+            </div>
+          ) : null}
+          {editor === "create" && canManage ? (
+            <EquipmentForm key={equipmentFormKey(null)} onClose={() => setEditor(null)} onSaved={setSelectedId} />
+          ) : null}
 
-      <aside className="lg:sticky lg:top-20 lg:self-start">
-        {selected ? (
-          <EquipmentDetail
-            item={selected}
-            onOpen={() => setStageOpen(true)}
-            hidePreview={stageOpen}
-            canManage={canManage}
-            canEditProjects={canEditProjects}
-            projects={projects}
-            editing={editor === "edit"}
-            onEdit={() => setEditor("edit")}
-            onCloseEdit={() => setEditor(null)}
-            onSaved={setSelectedId}
-          />
-        ) : (
-          <EmptyDetail />
-        )}
-      </aside>
+          {filtered.length === 0 ? (
+            <div className="rounded-[var(--radius-card)] border border-dashed bg-card px-4 py-10 text-center">
+              <p className="text-detail font-semibold">Nothing matches</p>
+              <p className="mt-1 text-meta text-muted-foreground">Clear a filter or search for another name.</p>
+            </div>
+          ) : filters.view === "table" ? (
+            <EquipmentTable
+              items={filtered}
+              selectedId={visibleId}
+              sort={filters.sort}
+              dir={filters.dir}
+              compareIds={compareIds}
+              fit={fit}
+              onCompare={toggleCompare}
+              onSelect={setSelectedId}
+              onSort={(sort) => {
+                if (filters.sort === sort) patchFilters({ dir: filters.dir === "asc" ? "desc" : "asc" })
+                else patchFilters({ sort, dir: defaultDir(sort) })
+              }}
+            />
+          ) : (
+            <div className="space-y-4">
+              {groups.map((group) => {
+                const GroupIcon = TRANSPORT_ICON[group.mode]
+                return (
+                  <section key={group.mode} aria-labelledby={`mode-${group.mode}`} className="surface-card overflow-hidden">
+                    <h2 id={`mode-${group.mode}`} className="bg-table-head flex items-center gap-2.5 border-b border-[var(--table-border)] px-4 py-2.5 text-[15px] font-bold text-[var(--table-head-fg)]">
+                      <GroupIcon className="size-4" aria-hidden="true" />
+                      {modeLabel(group.mode)}
+                      <span className="rounded-full bg-white/70 px-2 text-xs font-semibold dark:bg-white/10">{group.items.length}</span>
+                    </h2>
+                    <ul className="divide-y divide-[var(--table-border)]">
+                      {group.items.map((item, index) => {
+                        const isSelected = item.id === visibleId
+                        const fits = fit ? cargoFitsEquipment(fit, item) : false
+                        return (
+                          <li
+                            key={item.id}
+                            className={cn(
+                              "flex items-stretch transition-colors duration-200",
+                              index % 2 === 1 ? "bg-[var(--table-row-alt)]" : "bg-[var(--table-row)]",
+                              "hover:bg-[var(--table-row-hover)]",
+                              isSelected && "bg-[var(--pastel-mint-bg)] shadow-[inset_3px_0_0_var(--primary)] hover:bg-[var(--pastel-mint-bg)]",
+                              fits && "ring-1 ring-primary/70 ring-inset",
+                            )}
+                          >
+                            <label className="flex items-center px-3">
+                              <input
+                                type="checkbox"
+                                className="accent-[var(--primary)]"
+                                checked={compareIds.includes(item.id)}
+                                onChange={() => toggleCompare(item.id)}
+                                aria-label={`Compare ${item.name}`}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedId(item.id)}
+                              aria-pressed={isSelected}
+                              className={cn("flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-1 py-2.5 pr-4 text-left", FOCUS_RING)}
+                            >
+                              <IconTile icon={TRANSPORT_ICON[item.mode]} tint={TRANSPORT_TINT[item.mode]} size="sm" className="size-9 rounded-lg [&_svg]:size-[18px]" />
+                              <span className="min-w-0 flex-1">
+                                <span className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[15px] leading-5 font-semibold" title={item.code ? `Code: ${item.code}` : undefined}>
+                                    {item.name}
+                                  </span>
+                                  {fits ? <StatusPill tone="success">Fits</StatusPill> : null}
+                                </span>
+                                <span className="text-xs text-muted-foreground">
+                                  {modeLabel(item.mode)}
+                                  {item.heightOpen ? " · open height" : ""}
+                                  {item.axleGroups.length > 0 ? ` · ${item.axleGroups.length} axle groups` : ""}
+                                </span>
+                              </span>
+                              <span className="text-detail whitespace-nowrap tabular-nums">{formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm, unit)}</span>
+                              <span className="w-28 text-right text-detail font-semibold whitespace-nowrap tabular-nums">{formatKg(item.maxPayloadKg)}</span>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </section>
+                )
+              })}
+            </div>
+          )}
+        </section>
+
+        <aside className="min-w-0 xl:sticky xl:top-4 xl:self-start">
+          {selected ? (
+            <EquipmentDetail
+              item={selected}
+              onOpen={() => setStageOpen(true)}
+              hidePreview={stageOpen}
+              canManage={canManage}
+              canEditProjects={canEditProjects}
+              projects={projects}
+              editing={editor === "edit"}
+              onEdit={() => setEditor("edit")}
+              onCloseEdit={() => setEditor(null)}
+              onSaved={setSelectedId}
+            />
+          ) : (
+            <EmptyDetail />
+          )}
+        </aside>
+      </div>
       {selected ? <EquipmentStage item={selected} open={stageOpen} onClose={() => setStageOpen(false)} /> : null}
     </div>
   )
 }
 
-function FilterChip({
-  on,
-  className,
-  children,
-  onClick,
-}: {
-  on: boolean
-  className?: string
-  children: ReactNode
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={on}
-      data-on={on}
-      onClick={onClick}
-      className={cn(
-        "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors data-[on=false]:bg-background data-[on=false]:hover:bg-muted data-[on=true]:border-transparent data-[on=true]:bg-primary data-[on=true]:text-primary-foreground",
-        className,
-      )}
-    >
-      {children}
-    </button>
-  )
+/** The 3D scene cannot read CSS variables: the same neutral as --viewer-bg, from the theme (canvas only; drawn in the browser). */
+function useViewerBackground(): string {
+  const { resolvedTheme } = useTheme()
+  return resolvedTheme === "dark" ? "#1b2128" : "#edf2f4"
 }
 
 function EmptyDetail() {
   return (
-    <div className="rounded-md border border-dashed bg-card p-4">
-      <p className="text-sm font-medium">Select a type</p>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+    <div className="rounded-[var(--radius-card)] border border-dashed border-[var(--suggest-border)] p-5" style={{ background: "var(--util-bg)" }}>
+      <p className="text-detail font-semibold">Select a type</p>
+      <p className="mt-2 text-meta leading-6 text-muted-foreground">
         Payload, tare, axle groups, and the planning envelope show up here. Length runs from the front bulkhead
         toward the doors.
       </p>
@@ -423,6 +454,7 @@ function isTypingTarget(target: EventTarget | null) {
 }
 
 function EquipmentStage({ item, open, onClose }: { item: EquipmentListItem; open: boolean; onClose: () => void }) {
+  const background = useViewerBackground()
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
       <DialogContent className="flex h-[min(90vh,56rem)] max-w-6xl flex-col gap-0 overflow-hidden p-0">
@@ -432,7 +464,7 @@ function EquipmentStage({ item, open, onClose }: { item: EquipmentListItem; open
           <DimensionLegend lengthCm={item.innerLengthCm} widthCm={item.innerWidthCm} heightCm={item.innerHeightCm} />
         </DialogHeader>
         <div className="min-h-0 flex-1">
-          <EquipmentViewer item={item} className="h-full w-full bg-white" />
+          <EquipmentViewer item={item} background={background} className="h-full w-full" />
         </div>
       </DialogContent>
     </Dialog>
@@ -463,92 +495,92 @@ function EquipmentDetail({
   onSaved: (id: string) => void
 }) {
   const unit = useLengthUnit()
+  const viewerBg = useViewerBackground()
   if (editing && canManage) {
     return <EquipmentForm key={equipmentFormKey(item)} item={item} onClose={onCloseEdit} onSaved={onSaved} />
   }
+  const chip = "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold"
   return (
-    <article className="space-y-3 rounded-md border bg-card p-4">
-      <div>
-        <p className="text-xs text-muted-foreground">{modeLabel(item.mode)}</p>
-        <h2 className="mt-0.5 text-base font-semibold leading-tight">{item.name}</h2>
-        <p className="mt-1 font-mono text-xs text-muted-foreground">{item.code}</p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {canEditProjects ? (
-            <AddToProjectDialog equipmentTypeId={item.id} equipmentName={item.name} projects={projects} />
-          ) : null}
-          {canManage ? (
-            <button type="button" onClick={onEdit} className="inline-flex items-center gap-1 text-xs text-primary">
-              <Pencil className="size-3.5" />
-              Edit dimensions
-            </button>
-          ) : null}
-          <button type="button" onClick={() => copySpecs(item, unit)} className="inline-flex items-center gap-1 text-xs text-primary">
-            <ClipboardCopy className="size-3.5" />
-            Copy specs
-          </button>
+    <article className="space-y-4 rounded-[var(--radius-card)] border border-[var(--suggest-border)] p-5 shadow-soft" style={{ background: "var(--util-bg)" }} aria-label={`${item.name} details`}>
+      <div className="flex items-start gap-3.5">
+        <IconTile icon={TRANSPORT_ICON[item.mode]} tint={TRANSPORT_TINT[item.mode]} size="md" />
+        <div className="min-w-0 flex-1">
+          <p className="text-meta text-[var(--table-head-fg)]/80">{modeLabel(item.mode)}</p>
+          <h2 className="text-[22px] leading-7 font-extrabold tracking-tight break-words">{item.name}</h2>
+          <p className="mt-0.5 font-mono text-xs text-muted-foreground">{item.code}</p>
         </div>
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {canEditProjects ? (
+          <AddToProjectDialog equipmentTypeId={item.id} equipmentName={item.name} projects={projects} triggerClassName="press h-9 rounded-xl border-primary bg-primary px-4 text-button text-primary-foreground shadow-soft hover:bg-primary/90 hover:text-primary-foreground" />
+        ) : null}
+        {canManage ? (
+          <Button type="button" variant="outline" className="press h-9 rounded-xl bg-white/70 px-3.5 text-button dark:bg-white/5" onClick={onEdit}>
+            <Pencil className="size-4" />
+            Edit dimensions
+          </Button>
+        ) : null}
+        <Button type="button" variant="outline" className="press h-9 rounded-xl bg-white/70 px-3.5 text-button dark:bg-white/5" onClick={() => copySpecs(item, unit)}>
+          <ClipboardCopy className="size-4" />
+          Copy specs
+        </Button>
+      </div>
       <div className="flex flex-wrap gap-2">
-        {item.heightOpen ? <Badge variant="secondary">Open height</Badge> : <Badge variant="outline">Rated height</Badge>}
-        {item.oogClass !== "NONE" ? <Badge variant="outline">{item.oogClass}</Badge> : null}
-        {item.floors > 1 ? <Badge variant="outline">{item.floors} floors</Badge> : null}
-        {item.extendable ? <Badge variant="outline">Extendable</Badge> : null}
-        {item.isCustom ? <Badge>Custom</Badge> : <Badge variant="secondary">System</Badge>}
+        {item.heightOpen ? <span className={cn(chip, "border-[var(--pastel-amber-border)] bg-[var(--pastel-amber-bg)] text-[var(--pastel-amber-accent)]")}>Open height</span> : <span className={cn(chip, "border-[var(--table-border)] bg-white/70 text-[var(--table-head-fg)] dark:bg-white/5")}>Rated height</span>}
+        {item.oogClass !== "NONE" ? <span className={cn(chip, "border-[var(--pastel-amber-border)] bg-[var(--pastel-amber-bg)] text-[var(--pastel-amber-accent)]")}>{item.oogClass}</span> : null}
+        {item.floors > 1 ? <span className={cn(chip, "border-[var(--table-border)] bg-white/70 text-[var(--table-head-fg)] dark:bg-white/5")}>{item.floors} floors</span> : null}
+        {item.extendable ? <span className={cn(chip, "border-[var(--table-border)] bg-white/70 text-[var(--table-head-fg)] dark:bg-white/5")}>Extendable</span> : null}
+        {item.isCustom ? <span className={cn(chip, "border-primary bg-primary text-primary-foreground")}>Custom</span> : <span className={cn(chip, "border-[var(--pastel-mint-border)] bg-[var(--pastel-mint-bg)] text-[var(--pastel-mint-accent)]")}>System</span>}
       </div>
 
       <DimensionLegend lengthCm={item.innerLengthCm} widthCm={item.innerWidthCm} heightCm={item.innerHeightCm} />
-      <dl className="grid grid-cols-2 gap-3 text-sm">
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/70 bg-white/70 dark:border-white/10 dark:bg-white/10">
         <Spec label="Payload" value={formatKg(item.maxPayloadKg)} />
         <Spec label="Tare" value={formatKg(item.tareKg)} />
         <Spec label="Reference gross" value={formatKg(item.grossKg)} />
         <Spec label="Planning cost" value={formatCost(item.costPerUnit)} />
-        {item.doorWidthCm && item.doorHeightCm ? (
-          <Spec label="Door" value={`${formatCm(item.doorWidthCm, unit)} × ${formatCm(item.doorHeightCm, unit)}`} />
-        ) : null}
+        {item.doorWidthCm && item.doorHeightCm ? <Spec label="Door" value={`${formatCm(item.doorWidthCm, unit)} × ${formatCm(item.doorHeightCm, unit)}`} /> : null}
         <Spec label="Workbook id" value={item.externalId ?? "—"} />
         <Spec label="Used in" value={`${item.projectCount} ${item.projectCount === 1 ? "project" : "projects"}`} />
+        <Spec label="Volume" value={formatM3(equipmentVolumeM3(item))} />
       </dl>
       {item.sizeLabel ? <p className="text-xs text-muted-foreground">Source size: {item.sizeLabel}</p> : null}
-      {item.extendable && item.maxExtendedLengthCm ? (
-        <p className="text-sm">Extends to {formatCm(item.maxExtendedLengthCm, unit)}.</p>
-      ) : null}
+      {item.extendable && item.maxExtendedLengthCm ? <p className="text-detail">Extends to {formatCm(item.maxExtendedLengthCm, unit)}.</p> : null}
 
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">3D shape</p>
-          <button type="button" onClick={onOpen} className="inline-flex items-center gap-1 text-xs text-primary">
+          <p className="text-label text-[var(--table-head-fg)]">3D shape</p>
+          <Button type="button" variant="outline" className="press h-8 rounded-lg bg-white/70 px-3 text-[13px] font-semibold dark:bg-white/5" onClick={onOpen}>
             <Maximize2 className="size-3.5" />
             Open large view
-          </button>
+          </Button>
         </div>
         {hidePreview ? (
-          <div className="flex h-64 items-center justify-center rounded-md border text-sm text-muted-foreground">
+          <div className="flex h-72 items-center justify-center rounded-xl border border-white/70 text-detail text-muted-foreground" style={{ background: "var(--viewer-bg)" }}>
             Large view is open
           </div>
         ) : (
-          <EquipmentViewer item={item} className="h-72 w-full overflow-hidden rounded-md border bg-white" />
+          <EquipmentViewer item={item} background={viewerBg} className="h-80 w-full overflow-hidden rounded-xl border border-white/70 dark:border-white/10" />
         )}
-        <p className="mt-2 text-xs text-muted-foreground">
-          L, W, and H badges name each dimension. Colour repeats the same labels in the 3D view.
-        </p>
+        <p className="mt-2 text-xs text-muted-foreground">L, W and H badges name each dimension. Colour repeats the same labels in the 3D view.</p>
       </div>
 
       {item.axleGroups.length > 0 ? (
-        <ul className="space-y-2 text-sm">
+        <ul className="divide-y divide-white/70 rounded-xl bg-white/45 text-detail dark:divide-white/10 dark:bg-white/5">
           {item.axleGroups.map((axle) => (
-            <li key={axle.name} className="flex items-baseline justify-between gap-3">
+            <li key={axle.name} className="flex items-baseline justify-between gap-3 px-3.5 py-2">
               <span>{axle.name}</span>
-              <span className="text-muted-foreground">
+              <span className="text-muted-foreground tabular-nums">
                 {formatCm(axle.positionFromFrontCm, unit)} · {formatKg(axle.maxKg)}
               </span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-muted-foreground">No axle groups on this type.</p>
+        <p className="text-meta text-muted-foreground">No axle groups on this type.</p>
       )}
 
-      {item.notes ? <p className="text-sm leading-6 text-muted-foreground">{item.notes}</p> : null}
+      {item.notes ? <p className="text-meta leading-6 text-muted-foreground">{item.notes}</p> : null}
     </article>
   )
 }
@@ -564,10 +596,10 @@ function DimensionLegend({
 }) {
   const unit = useLengthUnit()
   return (
-    <p className="flex flex-wrap gap-2 text-sm font-medium">
-      <DimensionBadge letter="L" label="Length" value={formatCm(lengthCm, unit)} className="bg-amber-950 text-amber-50" />
-      <DimensionBadge letter="W" label="Width" value={formatCm(widthCm, unit)} className="bg-blue-900 text-blue-50" />
-      <DimensionBadge letter="H" label="Height" value={formatCm(heightCm, unit)} className="bg-violet-950 text-violet-50" />
+    <p className="flex flex-wrap gap-2 text-detail">
+      <DimensionBadge letter="L" label="Length" value={formatCm(lengthCm, unit)} className="pastel-mint" />
+      <DimensionBadge letter="W" label="Width" value={formatCm(widthCm, unit)} className="pastel-blue" />
+      <DimensionBadge letter="H" label="Height" value={formatCm(heightCm, unit)} className="pastel-lavender" />
     </p>
   )
 }
@@ -584,10 +616,10 @@ function DimensionBadge({
   className: string
 }) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-md px-2 py-0.5", className)}>
-      <span className="rounded bg-white px-1 text-[11px] font-bold text-neutral-950">{letter}</span>
+    <span className={cn("inline-flex items-center gap-2 rounded-lg border border-[var(--pc-border)] bg-[var(--pc-bg)] px-2.5 py-1 text-[var(--pc-accent)]", className)}>
+      <span className="rounded-md bg-white/85 px-1.5 text-[11px] font-extrabold dark:bg-white/15">{letter}</span>
       <span>
-        {label} {value}
+        {label} <span className="font-bold tabular-nums">{value}</span>
       </span>
     </span>
   )
@@ -595,9 +627,9 @@ function DimensionBadge({
 
 function Spec({ label, value }: { label: string; value: string }) {
   return (
-    <div>
+    <div className="bg-white/70 px-3.5 py-2.5 dark:bg-card/60">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="font-medium">{value}</dd>
+      <dd className="text-detail font-bold tabular-nums">{value}</dd>
     </div>
   )
 }
@@ -666,14 +698,19 @@ function FitPanel({ onChange }: { onChange: (cargo: FitCargo | null) => void }) 
     onChange(readFit(length, width, height, weight))
   }
   return (
-    <form className="grid gap-3 rounded-md border bg-card p-3 sm:grid-cols-4" onSubmit={(event) => event.preventDefault()}>
-      <p className="text-sm font-medium sm:col-span-4">Will it fit?</p>
+    <form className="pastel-mint grid gap-3 rounded-[var(--radius-card)] border border-[var(--pc-border)] bg-[var(--pc-bg)] p-4 shadow-soft sm:grid-cols-4" onSubmit={(event) => event.preventDefault()}>
+      <p className="flex items-center gap-2.5 text-[16px] font-bold text-[var(--pc-accent)] sm:col-span-4">
+        <span className="flex size-8 items-center justify-center rounded-lg bg-white/80 shadow-soft dark:bg-white/10">
+          <Ruler className="size-4" aria-hidden="true" />
+        </span>
+        Will it fit?
+      </p>
       <FitInput label="Cargo length (cm)" value={lengthCm} onChange={(lengthCm) => update({ lengthCm })} />
       <FitInput label="Cargo width (cm)" value={widthCm} onChange={(widthCm) => update({ widthCm })} />
       <FitInput label="Cargo height (cm)" value={heightCm} onChange={(heightCm) => update({ heightCm })} />
       <FitInput label="Cargo weight (kg)" value={weightKg} onChange={(weightKg) => update({ weightKg })} />
-      <p className="text-xs text-muted-foreground sm:col-span-4">
-        {cargo ? "Units that can take this cargo, including the door, are highlighted." : "Enter length, width, height, and weight to highlight units that fit."}
+      <p className="text-meta text-muted-foreground sm:col-span-4">
+        {cargo ? "Units that can take this cargo, including the door, are outlined in green and marked Fits." : "Enter length, width, height, and weight to highlight units that fit."}
       </p>
     </form>
   )
@@ -682,9 +719,9 @@ function FitPanel({ onChange }: { onChange: (cargo: FitCargo | null) => void }) 
 function FitInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const id = label.toLowerCase().replace(/[^a-z]+/g, "-")
   return (
-    <label className="space-y-1 text-xs text-muted-foreground" htmlFor={id}>
+    <label className="space-y-1 text-xs font-semibold text-[var(--pc-accent)]" htmlFor={id}>
       <span className="block">{label}</span>
-      <Input id={id} type="number" min="0.1" step="0.1" value={value} onChange={(event) => onChange(event.target.value)} className="h-8" />
+      <Input id={id} type="number" min="0.1" step="0.1" value={value} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-xl bg-card text-[15px] text-foreground shadow-soft" />
     </label>
   )
 }
@@ -728,7 +765,7 @@ function RangeField({
 }) {
   const id = label.toLowerCase().replace(/[^a-z]+/g, "-")
   return (
-    <label className="space-y-1 text-xs text-muted-foreground" htmlFor={id}>
+    <label className="space-y-1 text-xs font-semibold text-[var(--table-head-fg)]" htmlFor={id}>
       <span className="block">{label}</span>
       <Input
         id={id}
@@ -737,7 +774,7 @@ function RangeField({
         step="0.1"
         value={value ?? ""}
         onChange={(event) => onChange(event.target.value === "" ? null : Number(event.target.value))}
-        className="h-8 w-28"
+        className="h-10 w-32 rounded-xl bg-card text-[15px] text-foreground shadow-soft"
       />
     </label>
   )
@@ -777,7 +814,7 @@ function ActiveFilters({
           key={chip.key}
           type="button"
           onClick={() => onPatch(chip.clear)}
-          className="rounded-md border bg-muted px-2 py-1 text-xs"
+          className="press rounded-full border border-white/70 bg-white/75 px-3 py-1 text-xs font-semibold text-[var(--table-head-fg)] hover:border-primary dark:border-white/10 dark:bg-white/10"
         >
           {chip.label} <span aria-hidden="true">×</span>
           <span className="sr-only">Remove {chip.label}</span>
@@ -797,7 +834,7 @@ function ActiveFilters({
             payloadMax: null,
           })
         }
-        className="text-xs font-medium text-primary"
+        className="text-xs font-semibold text-primary hover:underline dark:text-[var(--step-done-fg)]"
       >
         Clear all
       </button>
@@ -837,16 +874,16 @@ function EquipmentTable({
     { key: "door", label: "Door" },
   ]
   return (
-    <div className="overflow-x-auto rounded-md border bg-card">
-      <table className="w-full min-w-[760px] text-left text-sm">
-        <thead>
-          <tr className="border-b">
-            <th className="px-3 py-2 font-medium">
+    <div className="surface-card max-h-[75vh] overflow-auto">
+      <table className="data-table w-full min-w-[760px] text-left text-sm">
+        <thead className="sticky top-0 z-10">
+          <tr>
+            <th className="px-3">
               <span className="sr-only">Compare</span>
             </th>
             {columns.map((column) => (
-              <th key={column.key} className="px-3 py-2 font-medium" aria-sort={sort === column.key ? (dir === "asc" ? "ascending" : "descending") : "none"}>
-                <button type="button" className="inline-flex items-center gap-1" onClick={() => onSort(column.key)}>
+              <th key={column.key} className={cn("px-3", NUMERIC.has(column.key) && "text-right")} aria-sort={sort === column.key ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+                <button type="button" className={cn("inline-flex items-center gap-1 rounded-md hover:text-primary", FOCUS_RING)} onClick={() => onSort(column.key)}>
                   {column.label}
                   {sort === column.key ? <span aria-hidden="true">{dir === "asc" ? "↑" : "↓"}</span> : null}
                 </button>
@@ -863,7 +900,7 @@ function EquipmentTable({
                 key={item.id}
                 tabIndex={0}
                 aria-selected={selected}
-                className={cn("cursor-pointer border-b last:border-0 hover:bg-muted/70", selected && "bg-muted", fits && "bg-emerald-50 ring-2 ring-inset ring-emerald-800")}
+                className={cn("cursor-pointer border-t outline-none focus-visible:bg-[var(--table-row-hover)]", selected && "bg-[var(--pastel-mint-bg)] hover:bg-[var(--pastel-mint-bg)]", fits && "ring-1 ring-primary/70 ring-inset")}
                 onClick={() => onSelect(item.id)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
@@ -872,25 +909,31 @@ function EquipmentTable({
                   }
                 }}
               >
-                <td className="px-3 py-2">
+                <td className={cn("px-3 py-2.5", selected && "shadow-[inset_3px_0_0_var(--primary)]")}>
                   <input
                     type="checkbox"
+                    className="accent-[var(--primary)]"
                     checked={compareIds.includes(item.id)}
                     aria-label={`Compare ${item.name}`}
                     onClick={(event) => event.stopPropagation()}
                     onChange={() => onCompare(item.id)}
                   />
                 </td>
-                <td className="px-3 py-2 font-medium">
-                  {item.name}
-                  {fits ? <span className="ml-2 font-medium text-emerald-950">Fits</span> : null}
+                <td className="px-3 py-2.5">
+                  <span className="flex items-center gap-2.5">
+                    <IconTile icon={TRANSPORT_ICON[item.mode]} tint={TRANSPORT_TINT[item.mode]} size="sm" className="size-8 rounded-lg [&_svg]:size-4" />
+                    <span className="text-[15px] font-semibold whitespace-nowrap" title={item.code ? `Code: ${item.code}` : undefined}>
+                      {item.name}
+                    </span>
+                    {fits ? <StatusPill tone="success">Fits</StatusPill> : null}
+                  </span>
                 </td>
-                <td className="px-3 py-2">{modeLabel(item.mode)}</td>
-                <td className="px-3 py-2">{formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm, unit)}</td>
-                <td className="px-3 py-2">{formatM3(equipmentVolumeM3(item))}</td>
-                <td className="px-3 py-2">{formatKg(item.maxPayloadKg)}</td>
-                <td className="px-3 py-2">{formatKg(item.tareKg)}</td>
-                <td className="px-3 py-2">{formatDoor(item, unit)}</td>
+                <td className="px-3 py-2.5">{modeLabel(item.mode)}</td>
+                <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{formatEnvelope(item.innerLengthCm, item.innerWidthCm, item.innerHeightCm, unit)}</td>
+                <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{formatM3(equipmentVolumeM3(item))}</td>
+                <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{formatKg(item.maxPayloadKg)}</td>
+                <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{formatKg(item.tareKg)}</td>
+                <td className="px-3 py-2.5 text-right whitespace-nowrap tabular-nums">{formatDoor(item, unit)}</td>
               </tr>
             )
           })}
@@ -899,3 +942,6 @@ function EquipmentTable({
     </div>
   )
 }
+
+/** Table columns whose values are numbers, right-aligned with their headings. */
+const NUMERIC = new Set<LibrarySort>(["length", "volume", "payload", "tare", "door"])

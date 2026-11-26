@@ -66,7 +66,10 @@ export function LoadViewer({
   onDragActive,
   flashItem = null,
   onDropPiece,
+  background = "#ffffff",
 }: {
+  /** Scene background colour (the 3D canvas cannot read CSS variables). */
+  background?: string
   /** Called when a set-aside piece is dropped on the container: its id and the floor point (cm). */
   onDropPiece?: (id: string, at: { x: number; y: number }) => void
   unit: PlanUnitView
@@ -177,7 +180,7 @@ export function LoadViewer({
         // "default" lets the browser pick the GPU; forcing "high-performance" made weaker laptops crash more often.
         gl={{ antialias: true, alpha: false, powerPreference: "default" }}
       >
-        <color attach="background" args={["#ffffff"]} />
+        <color attach="background" args={[background]} />
         <ambientLight intensity={0.4} />
         <hemisphereLight args={["#f7f7f7", "#c4c4c4", 0.35]} />
         <directionalLight position={[5, 11, 7]} intensity={1.2} />
@@ -362,7 +365,17 @@ function cameraPosition(
   if (camera === "top") return [0, Math.max(height * 2.8, reach * 1.6, 4), 0.01]
   if (camera === "side") return [0, height * 0.38, Math.max(length * 1.25, 8)]
   if (camera === "front") return [Math.max(length * 1.25, 8), height * 0.38, 0]
-  return [reach * 0.95, height * 0.85, reach * 0.95]
+  // Same viewing angle as before, but never so close that the unit is cut off: back off until a sphere
+  // around the whole unit fits in the vertical field of view (35°). Tall, narrow units (air ULDs) gain the most.
+  const base: [number, number, number] = [reach * 0.95, height * 0.85, reach * 0.95]
+  const target = [0, height / 2, 0]
+  const offset = base.map((value, axis) => value - target[axis]!)
+  const distance = Math.hypot(...offset)
+  const radius = Math.hypot(length, width, height) / 2
+  const needed = (radius / Math.tan(((35 / 2) * Math.PI) / 180)) * 0.9
+  if (distance >= needed || distance === 0) return base
+  const k = needed / distance
+  return [target[0]! + offset[0]! * k, target[1]! + offset[1]! * k, target[2]! + offset[2]! * k]
 }
 
 function CargoPiece({
