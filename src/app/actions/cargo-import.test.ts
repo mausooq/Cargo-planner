@@ -50,6 +50,7 @@ const answer: RawExtraction = {
   lines: [
     {
       reference: "C-1",
+      packageType: null,
       description: "Crate",
       descriptionEnglish: null,
       length: null,
@@ -58,6 +59,7 @@ const answer: RawExtraction = {
       combinedSize: "120 x 80 x 60 cm",
       sizeUnit: null,
       quantity: "10",
+      contentsQuantity: null,
       weight: "150 kg",
       grossWeight: null,
       netWeight: null,

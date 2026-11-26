@@ -20,6 +20,7 @@ const reader = { provider: "test", model: "test-model" }
 function rawLine(overrides: Partial<RawLine> = {}): RawLine {
   return {
     reference: null,
+    packageType: null,
     description: null,
     descriptionEnglish: null,
     length: null,
@@ -28,6 +29,7 @@ function rawLine(overrides: Partial<RawLine> = {}): RawLine {
     combinedSize: null,
     sizeUnit: null,
     quantity: null,
+    contentsQuantity: null,
     grossWeight: null,
     netWeight: null,
     weight: null,

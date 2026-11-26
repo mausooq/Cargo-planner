@@ -9,9 +9,10 @@ import { resolveMinSupportPct } from "@compass/physics"
 import { useEditorSettings } from "@/lib/editor-settings"
 import { toast } from "sonner"
 import { persistPlan, savePlanLayout } from "@/app/actions/plan"
+import { confirmEstimatedWeights } from "@/app/actions/cargo"
 import type { CargoLine } from "@/components/cargo-grid"
 import { rotationProblem } from "@/lib/layout-validation"
-import { isPlannable, plannableLines } from "@/lib/cargo-validation"
+import { isPlannable, linesNeedingWeightConfirmation, plannableLines } from "@/lib/cargo-validation"
 import { derivePlanStatus, type PlanStatus } from "@/lib/plan-status"
 import { recalculateGuard, type RecalcGuard } from "@/lib/recalc-guard"
 import { DragSettingsPanel } from "@/components/drag-settings"
@@ -106,6 +107,8 @@ export const PlanWorkspace = forwardRef<
   // Asks before a recalculation replaces something the planner arranged: unsaved moves, or a saved hand-arranged layout.
   const [confirmRecalc, setConfirmRecalc] = useState<RecalcGuard>(null)
   const lastError = useRef<string | null>(null)
+  // Lines whose weight is still an estimate, waiting for the planner to confirm them before a calculation.
+  const [estimateCheck, setEstimateCheck] = useState<CargoLine[] | null>(null)
   const selectedIndex = plan && plan.units.length > 0 ? Math.min(selected, plan.units.length - 1) : 0
   const unit = plan?.units[selectedIndex] ?? null
 
@@ -149,7 +152,7 @@ export const PlanWorkspace = forwardRef<
   /**
    * Packs the cargo and saves the plan. Failing at any step leaves the previous plan exactly as it was.
    */
-  async function calculate() {
+  async function calculate(options: { estimatesConfirmed?: boolean } = {}) {
     lastError.current = null
     setCalcFailed(false)
     if (equipment.length === 0) {
@@ -160,6 +163,13 @@ export const PlanWorkspace = forwardRef<
     const planned = plannableLines(cargo)
     if (planned.length === 0) {
       toast.error(cargo.length === 0 ? "Add cargo in Data first." : "None of the cargo lines is complete yet. Give each a name, a size and a weight in Data first.")
+      return false
+    }
+    // Estimated weights are fine for a provisional equipment suggestion, but a load plan is only calculated on weights
+    // the planner has confirmed: axle loads, payload and stacking all depend on them.
+    const estimated = linesNeedingWeightConfirmation(planned)
+    if (estimated.length > 0 && !options.estimatesConfirmed) {
+      setEstimateCheck(estimated)
       return false
     }
     if (planned.length < cargo.length) {
@@ -252,7 +262,7 @@ export const PlanWorkspace = forwardRef<
   }, [onStatusChange, planStatus])
 
   useImperativeHandle(ref, () => ({
-    calculate,
+    calculate: () => calculate(),
     hasPlan: () => Boolean(plan && plan.units.length > 0),
     isDirty: () => canEdit && layoutDirty,
     discardChanges,
@@ -318,6 +328,40 @@ export const PlanWorkspace = forwardRef<
         </div>
       ) : null}
 
+      <ConfirmDialog
+        open={estimateCheck !== null}
+        onOpenChange={(open) => {
+          if (!open) setEstimateCheck(null)
+        }}
+        title="Confirm the estimated weights?"
+        description={
+          estimateCheck ? (
+            <>
+              {estimateCheck.length} cargo line{estimateCheck.length === 1 ? " has" : "s have"} an estimated weight from the import (
+              {estimateCheck[0]!.weightEstimate!.basis}). Weight decides payload, axle loads and what may stand on what, so a load plan
+              is only calculated on weights you confirm. Cancel to check or correct them in the Cargo step first.
+              <span className="mt-2 block text-xs">
+                {estimateCheck
+                  .slice(0, 6)
+                  .map((line) => `${line.sku ? `${line.sku} ` : ""}${line.name}: ${formatKg(line.weightKg)}`)
+                  .join(" · ")}
+                {estimateCheck.length > 6 ? ` and ${estimateCheck.length - 6} more` : ""}
+              </span>
+            </>
+          ) : null
+        }
+        confirmLabel="Confirm weights and calculate"
+        onConfirm={async () => {
+          const lines = estimateCheck ?? []
+          const result = await confirmEstimatedWeights(projectId, lines.map((line) => line.id))
+          if (!result.ok) {
+            toast.error(result.error)
+            return false
+          }
+          setEstimateCheck(null)
+          void calculate({ estimatesConfirmed: true })
+        }}
+      />
       <ConfirmDialog
         open={confirmRecalc !== null}
         onOpenChange={(open) => {

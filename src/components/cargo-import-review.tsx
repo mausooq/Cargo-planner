@@ -9,7 +9,10 @@ import { LENGTH_UNIT_LABEL, LENGTH_UNITS, LENGTH_UNIT_SYMBOL, type LengthUnit } 
 import type { ReviewDocument } from "@/lib/cargo-extract"
 import { formatKg, formatM3 } from "@/lib/format"
 import {
+  acceptWeightEstimates,
+  applyWeightEstimates,
   blankLine,
+  clearWeightEstimates,
   compareTotals,
   consolidateIssues,
   describeRows,
@@ -20,8 +23,10 @@ import {
   isImportable,
   STATUS_LABEL,
   STATUS_SHORT,
+  suggestWeightDistribution,
   summarize,
   toDraft,
+  withSuggestedEstimates,
   withOriginal,
   type Confirmation,
   type ExistingCargoSummary,
@@ -55,6 +60,7 @@ export type ImportChoice = { mode: "append" | "replace"; confirmReplace: boolean
 const STATUS_STYLE: Record<LineStatus, string> = {
   ready: "bg-emerald-100 text-emerald-900 dark:bg-emerald-500/15 dark:text-emerald-300",
   corrected: "bg-sky-100 text-sky-900 dark:bg-sky-500/15 dark:text-sky-300",
+  estimated: "border border-dashed border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-300",
   missing: "bg-red-100 text-red-900 dark:bg-red-500/15 dark:text-red-300",
   ambiguous: "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-300",
   invalid: "bg-red-100 text-red-900 dark:bg-red-500/15 dark:text-red-300",
@@ -85,8 +91,15 @@ export function CargoImportReview({
   onCancel: () => void
   onImport: (lines: ReviewLine[], choice: ImportChoice) => void
 }) {
-  const unit = useLengthUnit()
-  const [lines, setLines] = useState<ReviewLine[]>(document.lines)
+  const preferred = useLengthUnit()
+  // The document's own size unit, when every line that states one agrees: the table starts in it, so the numbers look like
+  // the paper. The planner can switch; that changes only how sizes are shown here, never what is stored.
+  const documentUnit = useMemo(() => {
+    const units = new Set(document.lines.map((line) => line.sizeUnit).filter((entry): entry is LengthUnit => entry !== null))
+    return units.size === 1 ? [...units][0]! : null
+  }, [document.lines])
+  const [unit, setUnit] = useState<LengthUnit>(documentUnit ?? preferred)
+  const [lines, setLines] = useState<ReviewLine[]>(() => withSuggestedEstimates(document.lines, document.documentTotals))
   const [activeId, setActiveId] = useState<string | null>(document.lines[0]?.id ?? null)
   const [note, setNote] = useState<string | null>(null)
   const [mode, setMode] = useState<"append" | "replace">("append")
@@ -103,6 +116,9 @@ export function CargoImportReview({
   const groups = useMemo(() => consolidateIssues(lines, evaluations), [lines, evaluations])
   const totalNotes = useMemo(() => compareTotals(summary, document.documentTotals), [summary, document.documentTotals])
   const detailsLine = lines.find((line) => line.id === detailsId) ?? null
+  const totalGross = document.documentTotals?.weightKg ?? null
+  const estimatedNow = lines.filter((line) => line.include && line.weight.trim() === "" && line.estimatedWeight && !line.confirmed.includes("estimate"))
+  const suggestion = useMemo(() => suggestWeightDistribution(lines, evaluations, totalGross), [lines, evaluations, totalGross])
 
   const included = lines.map((line, index) => ({ line, evaluation: evaluations[index]!, number: index + 1 })).filter((entry) => entry.line.include)
   const needSizeUnit = included.filter((entry) => entry.evaluation.issues.some((issue) => issue.code === "size-unit"))
@@ -183,7 +199,36 @@ export function CargoImportReview({
         </p>
       ) : null}
 
+      <DocumentFacts document={document} />
+
       <PleaseCheck groups={groups} documentNotes={[...document.notes, ...totalNotes]} lineCount={lines.length} />
+
+      {suggestion && estimatedNow.length === 0 && suggestion.estimates.size > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-dashed border-amber-500 bg-amber-50/60 px-3 py-2 text-sm dark:bg-amber-500/10">
+          <span>
+            {suggestion.estimates.size === 1 ? "One line has" : `${suggestion.estimates.size} lines have`} no weight, but the document gives a total gross weight.
+            An {suggestion.basis} would be {[...suggestion.estimates.values()][0]} kg each.
+            {suggestion.sameSize ? "" : " The packages differ in size, so their real weights may differ a lot."}
+          </span>
+          <Button type="button" size="sm" variant="outline" onClick={() => setLines((current) => applyWeightEstimates(current, suggestion))}>
+            Use as estimates
+          </Button>
+        </div>
+      ) : null}
+      {estimatedNow.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-dashed border-amber-500 bg-amber-50/60 px-3 py-2 text-sm dark:bg-amber-500/10">
+          <span>
+            {estimatedNow.length} weight{estimatedNow.length === 1 ? " is an estimate" : "s are estimates"} (marked est.). They can be used for a provisional equipment
+            suggestion; confirm them before a load plan is calculated.
+          </span>
+          <Button type="button" size="sm" variant="outline" onClick={() => setLines((current) => acceptWeightEstimates(current))}>
+            Confirm the estimates
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setLines((current) => clearWeightEstimates(current))}>
+            Remove estimates
+          </Button>
+        </div>
+      ) : null}
 
       {needSizeUnit.length > 0 || needWeightUnit.length > 0 ? (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border border-amber-500/50 bg-amber-50/60 px-3 py-2 text-sm dark:bg-amber-500/10">
@@ -227,6 +272,24 @@ export function CargoImportReview({
       <p className="min-h-5 text-xs text-muted-foreground" role="status" aria-live="polite">
         {note ?? "Click any cell to edit it. A highlighted cell says what needs attention when you select it."}
       </p>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          Values as in the document · <span className="rounded border border-sky-500 px-1">calc</span> worked out ·{" "}
+          <span className="rounded border border-dashed border-amber-500 px-1">est.</span> estimate to confirm ·{" "}
+          <span className="rounded border border-red-500 px-1">red</span> missing or invalid · Stackable “Not stated” is planned as not stackable
+        </span>
+        <label className="flex items-center gap-2">
+          Sizes shown in
+          <select className={select} value={unit} onChange={(event) => setUnit(event.target.value as LengthUnit)} aria-label="Unit the sizes are shown in">
+            {LENGTH_UNITS.map((entry) => (
+              <option key={entry} value={entry}>
+                {LENGTH_UNIT_LABEL[entry]}
+                {entry === documentUnit ? " (document)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       <div className="overflow-x-auto rounded-md border">
         <table className="w-full min-w-[60rem] text-left text-sm">
@@ -428,12 +491,14 @@ function PleaseCheck({ groups, documentNotes, lineCount }: { groups: { required:
 }
 
 function Totals({ summary }: { summary: ReturnType<typeof summarize> }) {
+  const estimated = summary.estimatedWeightLines > 0 ? <span className="text-amber-700 dark:text-amber-400"> (incl. {summary.estimatedWeightLines} estimated)</span> : null
   const partial = (count: number, what: string) => (count > 0 ? <span className="text-amber-700 dark:text-amber-400"> (partial: {count} line{count === 1 ? "" : "s"} {what})</span> : null)
   return (
     <p className="text-sm text-muted-foreground" aria-live="polite">
       <span className="font-medium text-foreground">{summary.included}</span> line{summary.included === 1 ? "" : "s"} selected of {summary.detected} ·{" "}
       <span className="font-medium text-foreground">{summary.pieces.toLocaleString("en-US")}</span> piece{summary.pieces === 1 ? "" : "s"}
       {partial(summary.piecesUnknownLines, "without a quantity")} · <span className="font-medium text-foreground">{formatKg(summary.weightKg)}</span>
+      {estimated}
       {partial(summary.weightUnresolvedLines, "without a settled weight")} · <span className="font-medium text-foreground">{formatM3(summary.volumeM3)}</span>
       {partial(summary.volumeUnresolvedLines, "without a known size")} ·{" "}
       <span className={cn(summary.needReview > 0 && "font-medium text-amber-700 dark:text-amber-400")}>
@@ -445,7 +510,7 @@ function Totals({ summary }: { summary: ReturnType<typeof summarize> }) {
 
 // ---- one row ------------------------------------------------------------------------------------------------
 
-type Tone = "none" | "error" | "warn"
+type Tone = "none" | "error" | "warn" | "estimate" | "calculated"
 
 /** The worst problem on the given fields: what colours a cell and what it says when selected. */
 function problemOn(evaluation: LineEval, fields: string[]): { tone: Tone; message: string | null } {
@@ -460,6 +525,8 @@ const TONE_CLASS: Record<Tone, string> = {
   none: "",
   error: "border-red-500 bg-red-50/70 dark:bg-red-500/10",
   warn: "border-amber-500 bg-amber-50/70 dark:bg-amber-500/10",
+  estimate: "border-dashed border-amber-500 italic",
+  calculated: "border-sky-500/70",
 }
 
 function Cell({
@@ -541,6 +608,8 @@ function ReviewRow({
   const scopeProblem = evaluation.issues.some((issue) => issue.code === "weight-scope")
   const weight = problemOn(evaluation, ["weight", "weightUnit", "weightScope"])
   const settled = evaluation.weightResolved && evaluation.perPieceKg !== null
+  const estimated = evaluation.weightEstimated
+  const calculated = evaluation.origins.weight === "calculated"
   const weightText = settled ? trim4(evaluation.perPieceKg!) : line.weight.trim() ? `${line.weight.trim()}${line.weightUnit && !/[A-Za-z]/.test(line.weight) ? ` ${line.weightUnit}` : ""}` : ""
   const status = problemStatusTip(evaluation, duplicates)
 
@@ -594,9 +663,9 @@ function ReviewRow({
           label={`Weight per piece of line ${number}`}
           value={weightText}
           align="right"
-          tone={weight.tone}
-          message={weight.message}
-          title={line.weightEvidence ? `${line.weightEvidence}` : undefined}
+          tone={weight.tone !== "none" ? weight.tone : estimated ? "estimate" : calculated ? "calculated" : "none"}
+          message={weight.message ?? (estimated ? `Estimate: ${line.estimateBasis}. Confirm it before a load plan.` : null)}
+          title={line.weightEvidence ? `${line.weightEvidence}` : evaluation.interpretation ?? undefined}
           onActive={onActive}
           onCommit={(text) => {
             // A weight typed here is the planning weight for one piece, in kilograms unless a unit is written.
@@ -604,6 +673,7 @@ function ReviewRow({
             onEdit(change.patch, change.touched)
           }}
         />
+        {estimated ? <span className="mt-0.5 block text-right text-[11px] font-medium text-amber-700 dark:text-amber-400">est.</span> : calculated ? <span className="mt-0.5 block text-right text-[11px] text-sky-700 dark:text-sky-400">calc</span> : null}
         {scopeProblem ? (
           <div className="mt-1 flex items-center gap-1 text-xs" role="group" aria-label={`What the weight of line ${number} is for`}>
             <button type="button" className="rounded border px-1.5 py-0.5 hover:bg-muted" onClick={() => onEdit({ weightScope: "piece" }, ["weightScope"])}>
@@ -632,7 +702,7 @@ function ReviewRow({
           aria-label={`Stackable, line ${number}`}
           value={line.stackable === null ? "" : line.stackable ? "yes" : "no"}
           onChange={(event) => onEdit({ stackable: event.target.value === "" ? null : event.target.value === "yes" }, ["stackable"])}
-          title="Not stated means the planner's normal default (stackable)."
+          title="Not stated in the document. It is never assumed: the line is planned as not stackable until you choose."
         >
           <option value="">Not stated</option>
           <option value="yes">Yes</option>
@@ -796,11 +866,17 @@ function LineDetails({
             {evaluation.interpretation ? `${evaluation.interpretation}. ` : ""}
             {line.weightEvidence ? `The document says: ${line.weightEvidence}. ` : ""}
             With a quantity of 1 it makes no difference whether the weight is per piece or for the line.
+            {line.estimatedWeight && line.weight.trim() === "" ? ` Estimate: ${line.estimatedWeight} kg per piece, ${line.estimateBasis}.` : ""}
           </p>
           <div className="flex flex-wrap gap-2">
             {line.weightKind === "net" && !line.confirmed.includes("net") ? (
               <Button type="button" size="sm" variant="outline" onClick={() => onConfirm("net")}>
                 Use the net weight anyway
+              </Button>
+            ) : null}
+            {line.estimatedWeight && line.weight.trim() === "" && !line.confirmed.includes("estimate") ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => onConfirm("estimate")}>
+                Confirm the estimate ({line.estimatedWeight} kg)
               </Button>
             ) : null}
             {evaluation.issues.some((issue) => issue.code === "number-format") ? (
@@ -816,7 +892,9 @@ function LineDetails({
           <div className="grid gap-2 sm:grid-cols-4">
             {text("sku", "Mark / SKU")}
             {text("name", "Description", true)}
-            {text("quantity", "Quantity")}
+            {text("quantity", "Packages (quantity)")}
+            {text("packageType", "Package type")}
+            {text("contentsQuantity", "Products inside (not packages)")}
             <Field label="Shape">
               <select className={cn(select, "w-full")} value={line.shape} onChange={(event) => onEdit({ shape: event.target.value as ReviewLine["shape"] }, ["shape"])}>
                 <option value="BOX">Box or crate</option>
@@ -960,5 +1038,24 @@ function SheetPreview({ source, row }: { source: Extract<SourceView, { kind: "sh
       {source.truncated ? <p className="px-3 py-2 text-muted-foreground">Only the top of the sheet is shown here. All rows are read.</p> : null}
       {row !== undefined && !source.rows.some((entry) => entry.rowNumber === row) ? <p className="px-3 py-2 text-muted-foreground">Row {row} is below the part of the sheet shown here.</p> : null}
     </div>
+  )
+}
+
+/** What the document itself states for the whole shipment, next to what the lines add up to. Shown only when it states something. */
+function DocumentFacts({ document }: { document: ReviewDocument }) {
+  const totals = document.documentTotals
+  if (!totals) return null
+  const facts = [
+    totals.pieces !== null ? `${totals.pieces.toLocaleString("en-US")} package${totals.pieces === 1 ? "" : "s"}` : null,
+    totals.productQuantity ? `${totals.productQuantity} (products)` : null,
+    totals.netKg != null ? `net ${formatKg(totals.netKg)}` : null,
+    totals.weightKg !== null ? `gross ${formatKg(totals.weightKg)}` : null,
+    totals.volumeM3 != null ? formatM3(totals.volumeM3) : null,
+  ].filter((entry): entry is string => entry !== null)
+  if (facts.length === 0) return null
+  return (
+    <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+      <span className="font-medium">The document states:</span> {facts.join(" · ")}
+    </p>
   )
 }

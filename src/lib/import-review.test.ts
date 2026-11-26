@@ -27,8 +27,11 @@ describe("a complete line", () => {
   })
 
   it("keeps the planner's defaults for things the document did not say", () => {
-    const input = evaluateLine(line()).input!
-    expect(input.stackable).toBe(true)
+    const evaluation = evaluateLine(line())
+    const input = evaluation.input!
+    // Stacking is never assumed: not stated is planned as not stackable and flagged.
+    expect(input.stackable).toBe(false)
+    expect(evaluation.stackableNotStated).toBe(true)
     expect(input.destinationStop).toBe(1)
     expect(input.consignmentId).toBeNull()
     expect(Object.keys(input)).not.toContain("clearanceCm")

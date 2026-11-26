@@ -44,7 +44,7 @@ export async function updateCargoItem(projectId: string, cargoId: string, input:
 
   await prisma.cargoItem.update({
     where: { id: existing.id },
-    data: cargoData(project.projectId, parsed.data, existing.customFields),
+    data: cargoData(project.projectId, parsed.data, { existing: existing.customFields, previous: { stackable: existing.stackable, weightKg: existing.weightKg } }),
   })
   revalidatePath(`/projects/${project.projectId}`)
   return { ok: true as const }
@@ -244,7 +244,15 @@ const importLineSchema = cargoItemInputSchema.superRefine((line, context) => {
 export type ImportMode = "append" | "replace"
 
 /** A line to save, with what the review could not settle kept as notes (only for drafts). */
-export type ImportRow = CargoItemInput & { importNotes?: string[] }
+export type ImportRow = CargoItemInput & {
+  importNotes?: string[]
+  /** The document said nothing about stacking. The line is saved as not stackable and marked so. */
+  stackableNotStated?: boolean
+  /** The weight is an estimate (an equal share of a total). Fine for a provisional suggestion; confirmed before a load plan. */
+  weightEstimate?: { perPieceKg: number; basis: string }
+}
+
+const weightEstimateSchema = z.object({ perPieceKg: z.number().finite().positive(), basis: z.string().trim().min(1).max(300) })
 
 const importNotesSchema = z.array(z.string().trim().min(1).max(300)).max(8)
 
@@ -290,7 +298,13 @@ export async function importReviewedCargo(
   }
 
   try {
-    const data = parsed.data.map((row, index) => cargoData(project.projectId, row, undefined, notes[index]))
+    const data = parsed.data.map((row, index) => {
+      const sent = rows[index]!
+      const estimate = weightEstimateSchema.safeParse(sent.weightEstimate)
+      // An estimate is only recorded for the weight it describes; anything else is ignored.
+      const weightEstimate = estimate.success && Math.abs(estimate.data.perPieceKg - row.weightKg) < 0.0001 ? estimate.data : undefined
+      return cargoData(project.projectId, row, { importNotes: notes[index], stackableNotStated: sent.stackableNotStated === true, weightEstimate })
+    })
     const drafts = parsed.data.filter((row) => !isPlannable(row)).length
     if (mode === "replace") {
       const [removed] = await prisma.$transaction([
@@ -306,6 +320,28 @@ export async function importReviewedCargo(
   } catch {
     return { ok: false as const, error: "The lines could not be saved, and nothing was changed. Try again." }
   }
+}
+
+/**
+ * Confirms the estimated weights of the given lines: they become the planner's own values. Needed before
+ * a load plan is calculated with them; an equipment suggestion may use them provisionally.
+ */
+export async function confirmEstimatedWeights(projectId: string, cargoIds: string[]) {
+  const project = await editableProject(projectId)
+  if (!project.ok) return project
+  const ids = z.array(idSchema).min(1).max(MAX_IMPORT_ROWS).safeParse(cargoIds)
+  if (!ids.success) return { ok: false as const, error: "Choose the lines to confirm." }
+  const lines = await prisma.cargoItem.findMany({ where: { projectId: project.projectId, id: { in: ids.data } }, select: { id: true, customFields: true } })
+  const writes = lines
+    .filter((line) => "weightEstimate" in recordOf(line.customFields))
+    .map((line) => {
+      const kept = { ...recordOf(line.customFields) }
+      delete kept.weightEstimate
+      return prisma.cargoItem.update({ where: { id: line.id }, data: { customFields: Object.keys(kept).length === 0 ? Prisma.DbNull : (kept as Prisma.InputJsonObject) } })
+    })
+  if (writes.length > 0) await prisma.$transaction(writes)
+  revalidatePath(`/projects/${project.projectId}`)
+  return { ok: true as const, confirmed: writes.length }
 }
 
 /** Adds lines as they are, for Undo after a delete. Saving a reviewed import is `importReviewedCargo`, which is stricter. */
@@ -356,7 +392,17 @@ async function editableProject(
   return { ok: true, projectId: project.id }
 }
 
-function cargoData(projectId: string, input: CargoItemInput, existingCustomFields?: unknown, importNotes?: string[]) {
+type ExtrasContext = {
+  /** The line's stored `customFields`, when it is being updated. */
+  existing?: unknown
+  importNotes?: string[]
+  stackableNotStated?: boolean
+  weightEstimate?: { perPieceKg: number; basis: string }
+  /** The stored stacking and weight, when updating: changing either is the planner deciding, which retires its marker. */
+  previous?: { stackable: boolean; weightKg: number }
+}
+
+function cargoData(projectId: string, input: CargoItemInput, context: ExtrasContext = {}) {
   return {
     projectId,
     sku: input.sku,
@@ -368,7 +414,7 @@ function cargoData(projectId: string, input: CargoItemInput, existingCustomField
     quantity: input.quantity,
     shape: input.shape,
     orientation: input.orientation,
-    customFields: extrasJson(input, existingCustomFields, importNotes),
+    customFields: extrasJson(input, context),
     stackable: input.stackable,
     bottomOnly: input.bottomOnly,
     maxStackLoadKg: input.maxStackLoadKg,
@@ -387,7 +433,8 @@ function cargoData(projectId: string, input: CargoItemInput, existingCustomField
  * version saved there (such as a retired handling-clearance setting) is never read or used, but is not
  * silently destroyed when the line is edited.
  */
-function extrasJson(input: CargoItemInput, existing?: unknown, importNotes?: string[]): Prisma.InputJsonValue | typeof Prisma.DbNull {
+function extrasJson(input: CargoItemInput, context: ExtrasContext = {}): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  const { existing, importNotes, stackableNotStated, weightEstimate, previous } = context
   const kept = { ...recordOf(existing) }
   const allowed = input.orientation === "CUSTOM" ? formatAllowedRotations(input.allowedRotations) : null
   if (allowed) kept.allowedRotations = allowed
@@ -395,6 +442,12 @@ function extrasJson(input: CargoItemInput, existing?: unknown, importNotes?: str
   // Notes from an import travel with a draft line only while it is still incomplete. Once it can be planned they have done their job.
   if (isPlannable(input)) delete kept.importNotes
   else if (importNotes && importNotes.length > 0) kept.importNotes = importNotes
+  // Stacking the document did not mention: planned as not stackable, and shown as not stated until the planner decides.
+  if (stackableNotStated && input.stackable === false) kept.stacking = "not-stated"
+  else if (previous && input.stackable !== previous.stackable) delete kept.stacking
+  // An estimated weight stays marked until it is confirmed or the planner enters another weight.
+  if (weightEstimate) kept.weightEstimate = weightEstimate
+  else if (previous && Math.abs(input.weightKg - previous.weightKg) > 0.0001) delete kept.weightEstimate
   return Object.keys(kept).length === 0 ? Prisma.DbNull : (kept as Prisma.InputJsonObject)
 }
 

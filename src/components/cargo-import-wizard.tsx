@@ -481,9 +481,17 @@ export function CargoImportWizard({
     const evaluations = lines.map(evaluateLine)
     const rows = lines.map((line, index) => {
       const evaluation = evaluations[index]!
-      if (evaluation.input) return evaluation.input
+      // Flags that travel with the line: stacking the document did not state, and a weight that is only an estimate.
+      const flags = (row: { stackable: boolean; weightKg: number }) => ({
+        stackableNotStated: evaluation.stackableNotStated && row.stackable === false ? true : undefined,
+        weightEstimate:
+          evaluation.weightEstimated && evaluation.perPieceKg !== null && Math.abs(evaluation.perPieceKg - row.weightKg) < 0.0001
+            ? { perPieceKg: evaluation.perPieceKg, basis: line.estimateBasis || "estimated at import" }
+            : undefined,
+      })
+      if (evaluation.input) return { ...evaluation.input, ...flags(evaluation.input) }
       const draft = toDraft(line, evaluation)
-      return draft ? { ...draft.input, importNotes: draft.notes } : null
+      return draft ? { ...draft.input, importNotes: draft.notes, ...flags(draft.input) } : null
     })
     const drafts = evaluations.filter((evaluation) => evaluation.input === null).length
     if (rows.length === 0 || rows.some((row) => row === null)) {

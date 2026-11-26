@@ -22,6 +22,7 @@ const reader = { provider: "test", model: "test-model" }
 function rawLine(overrides: Partial<RawLine> = {}): RawLine {
   return {
     reference: null,
+    packageType: null,
     description: null,
     descriptionEnglish: null,
     length: null,
@@ -30,6 +31,7 @@ function rawLine(overrides: Partial<RawLine> = {}): RawLine {
     combinedSize: null,
     sizeUnit: null,
     quantity: null,
+    contentsQuantity: null,
     grossWeight: null,
     netWeight: null,
     weight: null,
@@ -197,15 +199,15 @@ describe("weights", () => {
 
   it("never spreads a shipment total across lines", () => {
     const result = review([rawLine({ description: "A", combinedSize: "1 x 1 x 1 m", quantity: "1" }), rawLine({ description: "B", combinedSize: "1 x 1 x 1 m", quantity: "1" })], {
-      documentTotals: { pieces: "2", weight: "500 kg" },
+      documentTotals: { pieces: "2", productQuantity: null, grossWeight: "500 kg", netWeight: null, volume: null, weightUnit: null },
     })
-    expect(result.documentTotals).toEqual({ pieces: 2, weightKg: 500 })
+    expect(result.documentTotals).toEqual({ pieces: 2, weightKg: 500, netKg: null, productQuantity: null, volumeM3: null })
     expect(result.lines.map((line) => line.weight)).toEqual(["", ""])
     expect(result.lines.map((line) => evaluateLine(line).status)).toEqual(["missing", "missing"])
   })
 
   it("compares the lines with the document's own totals", () => {
-    const result = review([rawLine({ ...base, weight: "150 kg", weightScope: "per_piece" })], { documentTotals: { pieces: "6", weight: "900 kg" } })
+    const result = review([rawLine({ ...base, weight: "150 kg", weightScope: "per_piece" })], { documentTotals: { pieces: "6", productQuantity: null, grossWeight: "900 kg", netWeight: null, volume: null, weightUnit: null } })
     const summary = summarize(result.lines, result.lines.map(evaluateLine))
     expect(compareTotals(summary, result.documentTotals)).toHaveLength(2)
   })
@@ -262,7 +264,8 @@ describe("what the document did not say is left alone", () => {
   it("applies stackability, floor-only, rotation and hazard only when stated", () => {
     const plain = evaluateLine(review([rawLine({ description: "Box", combinedSize: "1 x 1 x 1 m", quantity: "1", weight: "1 kg", weightScope: "per_piece" })]).lines[0]!).input!
     expect(plain.segregationClass).toBeNull()
-    expect(plain.stackable).toBe(true)
+    // Stacking is never assumed: not stated is planned as not stackable, and flagged as not stated.
+    expect(plain.stackable).toBe(false)
     const stated = evaluateLine(
       review([rawLine({ description: "Box", combinedSize: "1 x 1 x 1 m", quantity: "1", weight: "1 kg", weightScope: "per_piece", stackable: false, floorOnly: true, orientationRestriction: "DO_NOT_ROTATE", hazardClass: "Class 3" })]).lines[0]!,
     ).input!

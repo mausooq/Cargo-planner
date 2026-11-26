@@ -33,6 +33,12 @@ function importNotesOf(value: unknown): string[] {
   return Array.isArray(raw) ? raw.filter((entry): entry is string => typeof entry === "string").slice(0, 8) : []
 }
 
+/** An estimated weight stored with a line by the import, while it is not yet confirmed. */
+function weightEstimateOf(value: unknown): { perPieceKg: number; basis: string } | null {
+  const raw = recordOf(recordOf(value).weightEstimate)
+  return typeof raw.perPieceKg === "number" && raw.perPieceKg > 0 && typeof raw.basis === "string" ? { perPieceKg: raw.perPieceKg, basis: raw.basis } : null
+}
+
 function storedRotations(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const raw = (value as { allowedRotations?: unknown }).allowedRotations
@@ -92,6 +98,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     segregationClass: item.segregationClass,
     color: item.color,
     importNotes: importNotesOf(item.customFields),
+    stackableNotStated: recordOf(item.customFields).stacking === "not-stated" && !item.stackable,
+    weightEstimate: weightEstimateOf(item.customFields),
   }))
 
   const library = await listEquipmentForOrg(user.orgId)

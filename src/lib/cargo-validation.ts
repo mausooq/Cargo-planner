@@ -59,3 +59,13 @@ export function cargoTotals(lines: Pick<CargoItemInput, "lengthCm" | "widthCm" |
 export function plannableLines<T extends Checkable>(lines: T[]): T[] {
   return lines.filter(isPlannable)
 }
+
+/**
+ * The lines whose weight is still an estimate from an import (an equal share of a total, say). They may be used
+ * for a provisional equipment suggestion, but a load plan is only calculated once the planner confirms them:
+ * payload, axle loads and what may stand on what all depend on the weight. An estimate stops counting once
+ * the line's weight differs from it (the planner entered another value).
+ */
+export function linesNeedingWeightConfirmation<T extends { weightKg: number; weightEstimate?: { perPieceKg: number } | null }>(lines: T[]): T[] {
+  return lines.filter((line) => line.weightEstimate != null && Math.abs(line.weightEstimate.perPieceKg - line.weightKg) < 0.0001)
+}

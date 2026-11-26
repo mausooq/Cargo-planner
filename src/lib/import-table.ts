@@ -9,7 +9,7 @@ import {
   type ImportPreview,
   type TabularSheet,
 } from "@/lib/cargo-import"
-import { blankLine, evaluateLine, isImportable, withOriginal, type DocumentTotals, type ReviewLine } from "@/lib/import-review"
+import { blankLine, evaluateLine, expandMarkRange, isImportable, withOriginal, type DocumentTotals, type ReviewLine } from "@/lib/import-review"
 import { parseWeight, readNumber, splitCombinedSize, splitNetGross } from "@/lib/import-units"
 
 /**
@@ -165,7 +165,8 @@ export function tableToReviewLines(sheet: TabularSheet, mapping: ImportMapping):
 
     if (optional) {
       line.shape = optional.shape
-      line.stackable = optional.stackable
+      // A sheet that says nothing about stacking leaves it not stated; it is never taken as stackable.
+      line.stackable = cell("stackable").trim() === "" && cell("notStackable").trim() === "" ? null : optional.stackable
       line.floorOnly = optional.bottomOnly
       line.orientation = optional.orientation
       line.destination = line.destination || ""
@@ -177,7 +178,7 @@ export function tableToReviewLines(sheet: TabularSheet, mapping: ImportMapping):
         allowedRotations: optional.allowedRotations,
       }
     }
-    lines.push(withOriginal(line))
+    lines.push(...expandMarkRange(withOriginal(line)))
   })
 
   const documentTotals =

@@ -203,6 +203,13 @@ export function EquipmentSuggestions({
         </p>
       ) : null}
 
+      {cargo.some((line) => line.weightEstimate) ? (
+        <p className="mt-3 rounded-md border border-dashed border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+          Provisional: {cargo.filter((line) => line.weightEstimate).length} cargo line
+          {cargo.filter((line) => line.weightEstimate).length === 1 ? " uses an estimated weight" : "s use estimated weights"}. The suggestion is a guide; the weights are confirmed before a load plan is calculated.
+        </p>
+      ) : null}
+
       {!running && current ? (
         current.ranked.length === 0 ? (
           <p className="mt-3 rounded-md bg-muted/60 px-3 py-2 text-sm">

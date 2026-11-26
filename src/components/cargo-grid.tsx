@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import {
   addCargoItem,
   bulkUpdateCargo,
+  confirmEstimatedWeights,
   deleteCargoItems,
   duplicateCargoItem,
   importCargoRows,
@@ -43,6 +44,10 @@ export type CargoLine = CargoItemInput & {
   updatedAt: string
   /** What an import could not settle for this line (a size with no unit, a weight that could mean two things). Shown until the line is complete. */
   importNotes?: string[]
+  /** The document did not say whether this can be stacked: planned as not stackable until the planner decides. */
+  stackableNotStated?: boolean
+  /** The weight is an estimate from the import, not yet confirmed. */
+  weightEstimate?: { perPieceKg: number; basis: string } | null
 }
 
 const SHAPES: { value: CargoShape; label: string }[] = [
@@ -679,6 +684,19 @@ function CargoRow({
         onChange={(weightKg) => setDraft({ ...draft, weightKg })}
         onBlur={() => commit(draft)}
         inputProps={cellProps("weightKg")}
+        marker={
+          line.weightEstimate && Math.abs(line.weightEstimate.perPieceKg - draft.weightKg) < 0.0001 ? (
+            <button
+              type="button"
+              disabled={!canEdit}
+              className="mt-0.5 inline-flex items-center gap-1 rounded border border-dashed border-amber-500 px-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:cursor-default dark:text-amber-300 dark:hover:bg-amber-500/10"
+              title={`Estimated: ${line.weightEstimate.basis}. Click to confirm it as the weight. A load plan asks for this first.`}
+              onClick={() => void trackSave(confirmEstimatedWeights(projectId, [line.id]))}
+            >
+              est. · confirm
+            </button>
+          ) : null
+        }
       />
       <NumberCell
         label="Quantity"
@@ -695,6 +713,8 @@ function CargoRow({
         <input
           type="checkbox"
           aria-label="Do not stack on top"
+          title={line.stackableNotStated && !draft.stackable ? "The document does not say whether this can be stacked, so it is planned as not stackable. Untick to allow stacking." : undefined}
+          className={cn(line.stackableNotStated && !draft.stackable && "outline-2 outline-offset-1 outline-amber-500 outline-dashed")}
           checked={!draft.stackable}
           disabled={!canEdit}
           onChange={(event) => {
@@ -939,6 +959,7 @@ function NumberCell({
   onChange,
   onBlur,
   inputProps,
+  marker,
 }: {
   label: string
   value: number
@@ -951,6 +972,8 @@ function NumberCell({
   onChange: (value: number) => void
   onBlur: () => void
   inputProps: CellInputProps
+  /** A small note under the value, such as an estimate to confirm. */
+  marker?: ReactNode
 }) {
   // Local text so a cell can be cleared while typing without snapping to 0.
   const [text, setText] = useState(() => numberText(value, allowZero))
@@ -994,6 +1017,7 @@ function NumberCell({
         className={cn("h-8 min-w-0 px-1.5", cellTone(tone))}
         {...inputProps}
       />
+      {marker}
     </td>
   )
 }

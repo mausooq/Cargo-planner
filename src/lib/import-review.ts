@@ -13,7 +13,8 @@ import { readNumber, readSize, parseWeight, type ImportWeightUnit } from "@/lib/
  * confirms it. Values the planner types are marked as theirs.
  */
 
-export type FieldOrigin = "source" | "calculated" | "user"
+/** Where a value came from: the document as written, worked out from it, an estimate to confirm, or typed by the planner. */
+export type FieldOrigin = "source" | "calculated" | "estimated" | "user"
 
 /** Where on the source a line was read from. Only what the source or the reader really reported. */
 export type ReviewSource = {
@@ -29,7 +30,7 @@ export type ReviewSource = {
 export type WeightScope = "piece" | "line" | "unclear"
 export type WeightKind = "gross" | "net" | "unspecified"
 /** Things the planner has looked at and accepted. Changing the related value takes the acceptance away. */
-export type Confirmation = "weight" | "numbers" | "net"
+export type Confirmation = "weight" | "numbers" | "net" | "estimate"
 
 export type ReviewLine = {
   id: string
@@ -50,6 +51,14 @@ export type ReviewLine = {
   netWeight: string
   /** The words in the document that say whether the weight is per package or for the line (a column title or a quote). */
   weightEvidence: string
+  /** An estimated weight per piece in kg, offered when the document gives no weight for this line (an equal share of a total). Used only while `weight` is blank. */
+  estimatedWeight: string
+  /** How the estimate was made, in words. */
+  estimateBasis: string
+  /** The kind of package as written (wooden case, pallet, carton). */
+  packageType: string
+  /** How many products are inside the package(s), as written (250 pcs). Not the number of packages. */
+  contentsQuantity: string
   weightScope: WeightScope
   weightUnit: ImportWeightUnit | null
   weightKind: WeightKind
@@ -97,6 +106,10 @@ export function blankLine(id: string): ReviewLine {
     weight: "",
     netWeight: "",
     weightEvidence: "",
+    estimatedWeight: "",
+    estimateBasis: "",
+    packageType: "",
+    contentsQuantity: "",
     weightScope: "piece",
     weightUnit: null,
     weightKind: "unspecified",
@@ -155,14 +168,15 @@ export type IssueCode =
 export type LineIssue = { field: string; kind: IssueKind; code: IssueCode; message: string }
 
 /** Things worth knowing that never block a line: a conversion that worked, a weight worked out, a net weight kept for reference. */
-export type NoteCode = "unit-converted" | "weight-calculated" | "net-reference" | "source-note"
+export type NoteCode = "unit-converted" | "weight-calculated" | "weight-estimated" | "net-reference" | "source-note"
 export type LineNote = { code: NoteCode; message: string }
 
-export type LineStatus = "ready" | "corrected" | "missing" | "ambiguous" | "invalid" | "excluded"
+export type LineStatus = "ready" | "corrected" | "estimated" | "missing" | "ambiguous" | "invalid" | "excluded"
 
 export const STATUS_LABEL: Record<LineStatus, string> = {
   ready: "Ready for review",
   corrected: "User corrected",
+  estimated: "Estimated weight: confirm before calculating a load plan",
   missing: "Missing required information",
   ambiguous: "Ambiguous value",
   invalid: "Invalid value",
@@ -173,6 +187,7 @@ export const STATUS_LABEL: Record<LineStatus, string> = {
 export const STATUS_SHORT: Record<LineStatus, string> = {
   ready: "OK",
   corrected: "Edited",
+  estimated: "Estimate",
   missing: "Missing",
   ambiguous: "Check",
   invalid: "Invalid",
@@ -192,6 +207,10 @@ export type LineEval = {
   lineKg: number | null
   /** True when the planning weight is settled: nothing about its unit, meaning or format is open. Totals only count settled weights. */
   weightResolved: boolean
+  /** True while the planning weight is an estimate the planner has not confirmed. Fine for a provisional equipment suggestion, not for a final load plan. */
+  weightEstimated: boolean
+  /** True when the document says nothing about stacking. The line is then planned as not stackable, and shown as not stated. */
+  stackableNotStated: boolean
   volumeM3: number | null
   /** Sizes in cm, when all three are known. */
   sizesCm: [number, number, number] | null
@@ -291,7 +310,19 @@ export function evaluateLine(line: ReviewLine): LineEval {
   let lineKg: number | null = null
   let interpretation: string | null = null
   let planningKg: number | null = null
-  if (line.weight.trim() === "") {
+  const estimate = line.weight.trim() === "" && line.estimatedWeight.trim() !== "" ? parseWeight(line.estimatedWeight, "kg") : null
+  let weightEstimated = false
+  if (estimate && estimate.ok && estimate.kg > 0) {
+    perPieceKg = estimate.kg
+    lineKg = pieces === null ? null : roundKg(estimate.kg * pieces)
+    if (line.confirmed.includes("estimate")) {
+      origins.weight = "user"
+    } else {
+      origins.weight = "estimated"
+      weightEstimated = true
+      notes.push({ code: "weight-estimated", message: `Estimated ${trimNumber(estimate.kg)} kg per piece (${line.estimateBasis || "an equal share of a total"}). Confirm it before calculating a load plan.` })
+    }
+  } else if (line.weight.trim() === "") {
     add("weight", "missing", "weight-missing", "Missing weight.")
   } else {
     const parsed = parseWeight(line.weight, line.weightUnit)
@@ -370,7 +401,8 @@ export function evaluateLine(line: ReviewLine): LineEval {
       heightCm: sizesCm[2],
       weightKg: perPieceKg,
       quantity: pieces,
-      stackable: line.stackable ?? base.stackable,
+      // Never assumed: a document that says nothing about stacking is planned as not stackable.
+      stackable: line.stackable ?? false,
       bottomOnly: line.floorOnly ?? base.bottomOnly,
       orientation: line.orientation ?? base.orientation,
       destinationStop,
@@ -385,14 +417,16 @@ export function evaluateLine(line: ReviewLine): LineEval {
   else if (issues.some((issue) => issue.kind === "invalid")) status = "invalid"
   else if (issues.some((issue) => issue.kind === "missing")) status = "missing"
   else if (issues.length > 0) status = "ambiguous"
+  else if (weightEstimated) status = "estimated"
   else status = line.edited.length > 0 ? "corrected" : "ready"
 
-  return { status, issues, notes, input, pieces, perPieceKg, lineKg, weightResolved, volumeM3, sizesCm, interpretation, origins }
+  return { status, issues, notes, input, pieces, perPieceKg, lineKg, weightResolved, weightEstimated, stackableNotStated: line.stackable === null, volumeM3, sizesCm, interpretation, origins }
 }
 
 /** A line can be saved as ready cargo only when it is included and nothing is missing, unclear or invalid. */
 export function isImportable(evaluation: LineEval): boolean {
-  return (evaluation.status === "ready" || evaluation.status === "corrected") && evaluation.input !== null
+  // An estimated weight is good enough to add the line and suggest equipment; it is confirmed before a load plan is calculated.
+  return (evaluation.status === "ready" || evaluation.status === "corrected" || evaluation.status === "estimated") && evaluation.input !== null
 }
 
 /**
@@ -438,7 +472,8 @@ export function toDraft(line: ReviewLine, evaluation: LineEval): { input: CargoI
       heightCm: height,
       weightKg: weight,
       quantity: evaluation.pieces,
-      stackable: line.stackable ?? base.stackable,
+      // Never assumed: a document that says nothing about stacking is planned as not stackable.
+      stackable: line.stackable ?? false,
       bottomOnly: line.floorOnly ?? base.bottomOnly,
       orientation: line.orientation ?? base.orientation,
       destinationStop: readNumber(line.destination)?.value && Number.isInteger(readNumber(line.destination)!.value) && readNumber(line.destination)!.value >= 1 ? readNumber(line.destination)!.value : 1,
@@ -466,6 +501,8 @@ export type ReviewSummary = {
   /** Volume of the lines whose sizes and quantity are known. */
   volumeM3: number
   volumeUnresolvedLines: number
+  /** Selected lines whose weight is an unconfirmed estimate. Their weight is in the total, which is then an estimate too. */
+  estimatedWeightLines: number
   /** True when any total leaves a selected line out. */
   incomplete: boolean
 }
@@ -482,6 +519,7 @@ export function summarize(lines: ReviewLine[], evaluations: LineEval[]): ReviewS
     weightUnresolvedLines: 0,
     volumeM3: 0,
     volumeUnresolvedLines: 0,
+    estimatedWeightLines: 0,
     incomplete: false,
   }
   lines.forEach((line, index) => {
@@ -492,6 +530,7 @@ export function summarize(lines: ReviewLine[], evaluations: LineEval[]): ReviewS
     else summary.needReview += 1
     if (evaluation.pieces !== null) summary.pieces += evaluation.pieces
     else summary.piecesUnknownLines += 1
+    if (evaluation.weightEstimated) summary.estimatedWeightLines += 1
     if (evaluation.weightResolved && evaluation.lineKg !== null) summary.weightKg += evaluation.lineKg
     else summary.weightUnresolvedLines += 1
     if (evaluation.volumeM3 !== null) summary.volumeM3 += evaluation.volumeM3
@@ -543,6 +582,7 @@ const GROUP_TEXT: Record<IssueCode, string> = {
 const NOTE_TEXT: Record<Exclude<NoteCode, "source-note" | "unit-converted">, string> = {
   "weight-calculated": "Weight per piece worked out from a line total and the quantity",
   "net-reference": "Net weight kept as reference; planning uses the weight with packaging",
+  "weight-estimated": "Estimated weights (equal shares of a total): confirm them before calculating a load plan",
 }
 
 const REQUIRED_KINDS: IssueKind[] = ["missing", "invalid"]
@@ -564,7 +604,8 @@ export function consolidateIssues(lines: ReviewLine[], evaluations: LineEval[]):
       put(REQUIRED_KINDS.includes(issue.kind) ? required : confirm, issue.code, GROUP_TEXT[issue.code], index + 1)
     }
     for (const note of evaluation.notes) {
-      if (note.code === "source-note" || note.code === "unit-converted") put(info, `${note.code}:${note.message}`, note.message.replace(/\.$/, ""), index + 1)
+      if (note.code === "weight-estimated") put(confirm, note.code, NOTE_TEXT[note.code], index + 1)
+      else if (note.code === "source-note" || note.code === "unit-converted") put(info, `${note.code}:${note.message}`, note.message.replace(/\.$/, ""), index + 1)
       else put(info, note.code, NOTE_TEXT[note.code], index + 1)
     }
   })
@@ -652,7 +693,15 @@ export function findDuplicates(lines: ReviewLine[], evaluations: LineEval[], exi
   return notes
 }
 
-export type DocumentTotals = { pieces: number | null; weightKg: number | null }
+/** What the document itself states for the whole shipment. `weightKg` is the gross weight. */
+export type DocumentTotals = {
+  pieces: number | null
+  weightKg: number | null
+  netKg?: number | null
+  /** The quantity of products, as written (1,500 pcs), as opposed to the number of packages. */
+  productQuantity?: string | null
+  volumeM3?: number | null
+}
 
 /** Differences between what the lines add up to and the totals the document states. Both are shown; neither is changed. */
 export function compareTotals(summary: ReviewSummary, totals: DocumentTotals | null): string[] {
@@ -683,4 +732,146 @@ function capital(text: string): string {
 
 function trimNumber(value: number): string {
   return String(Math.round(value * 10000) / 10000)
+}
+
+// ---- estimated weights ----------------------------------------------------------------------------------
+
+export type WeightSuggestion = {
+  /** Line id to estimated kg per piece. */
+  estimates: Map<string, string>
+  /** The total that is shared out. */
+  sharedKg: number
+  pieces: number
+  basis: string
+  /** True when every package that gets a share has the same size, which is when an equal share is most reasonable. */
+  sameSize: boolean
+  /** What rounding to 0.01 kg could not place, in kg. Zero when the shares add up exactly. */
+  residualKg: number
+}
+
+/**
+ * Shares `totalKg` out over `pieces` packages in hundredths of a kilogram so the parts add back up to the
+ * total exactly. A line of several pieces needs the same weight for each of them, so the hundredths
+ * left over go to lines with fewer pieces first; anything that still cannot be placed is reported.
+ */
+function shareOut(totalKg: number, lines: { id: string; pieces: number }[]): { perPiece: Map<string, number>; residualKg: number } {
+  const totalHundredths = Math.round(totalKg * 100)
+  const pieces = lines.reduce((sum, entry) => sum + entry.pieces, 0)
+  const base = Math.floor(totalHundredths / pieces)
+  let left = totalHundredths - base * pieces
+  const perPiece = new Map(lines.map((entry) => [entry.id, base]))
+  for (const entry of [...lines].sort((a, b) => a.pieces - b.pieces)) {
+    if (left >= entry.pieces) {
+      perPiece.set(entry.id, base + 1)
+      left -= entry.pieces
+    }
+  }
+  return { perPiece: new Map([...perPiece].map(([id, hundredths]) => [id, hundredths / 100])), residualKg: left / 100 }
+}
+
+/**
+ * When the document gives a total gross weight but no weight for some packages, an equal share of what
+ * is left (the total less the weights the other lines do give) for each of those packages. It is only a
+ * suggestion: the planner applies it, it is shown as an estimate, and it is confirmed before a load plan.
+ * Null when there is nothing to share, or when another line's weight is itself unsettled (the remainder
+ * would then not be known).
+ */
+export function suggestWeightDistribution(lines: ReviewLine[], evaluations: LineEval[], totalGrossKg: number | null | undefined): WeightSuggestion | null {
+  if (!totalGrossKg || !(totalGrossKg > 0)) return null
+  const candidates: { id: string; pieces: number; sizes: [number, number, number] | null }[] = []
+  let knownKg = 0
+  for (const [index, line] of lines.entries()) {
+    if (!line.include) continue
+    const evaluation = evaluations[index]!
+    if (line.weight.trim() === "") {
+      if (evaluation.pieces === null) return null
+      candidates.push({ id: line.id, pieces: evaluation.pieces, sizes: evaluation.sizesCm })
+    } else if (evaluation.weightResolved && evaluation.lineKg !== null) {
+      knownKg += evaluation.lineKg
+    } else {
+      return null
+    }
+  }
+  if (candidates.length === 0) return null
+  const sharedKg = roundKg(totalGrossKg - knownKg)
+  if (!(sharedKg > 0)) return null
+  const pieces = candidates.reduce((sum, entry) => sum + entry.pieces, 0)
+  const { perPiece, residualKg } = shareOut(sharedKg, candidates)
+  const first = candidates[0]!.sizes
+  const sameSize = first !== null && candidates.every((entry) => entry.sizes !== null && entry.sizes.every((value, axis) => Math.abs(value - first[axis]!) < 0.05))
+  const basis =
+    knownKg > 0
+      ? `equal share of ${trimNumber(sharedKg)} kg: the document's total gross weight of ${trimNumber(totalGrossKg)} kg less ${trimNumber(roundKg(knownKg))} kg given for other lines, over ${pieces} packages`
+      : `equal share of the document's total gross weight of ${trimNumber(totalGrossKg)} kg over ${pieces} packages`
+  return { estimates: new Map([...perPiece].map(([id, kg]) => [id, trimNumber(kg)])), sharedKg, pieces, basis, sameSize, residualKg }
+}
+
+/** Puts the suggested estimates on their lines. Any earlier acceptance of an estimate is taken back. */
+export function applyWeightEstimates(lines: ReviewLine[], suggestion: WeightSuggestion): ReviewLine[] {
+  return lines.map((line) => {
+    const estimate = suggestion.estimates.get(line.id)
+    if (estimate === undefined) return line
+    return { ...line, estimatedWeight: estimate, estimateBasis: suggestion.basis, confirmed: line.confirmed.filter((entry) => entry !== "estimate") }
+  })
+}
+
+/** Accepts the estimates on the given lines (all of them when no ids are given): they then count as the planner's own values. */
+export function acceptWeightEstimates(lines: ReviewLine[], ids?: ReadonlySet<string>): ReviewLine[] {
+  return lines.map((line) =>
+    line.estimatedWeight && line.weight.trim() === "" && (!ids || ids.has(line.id)) && !line.confirmed.includes("estimate")
+      ? { ...line, confirmed: [...line.confirmed, "estimate"], edited: [...new Set([...line.edited, "weight"])] }
+      : line,
+  )
+}
+
+export function clearWeightEstimates(lines: ReviewLine[]): ReviewLine[] {
+  return lines.map((line) => (line.estimatedWeight ? { ...line, estimatedWeight: "", estimateBasis: "", confirmed: line.confirmed.filter((entry) => entry !== "estimate") } : line))
+}
+
+// ---- packages listed by a range of marks ------------------------------------------------------------------
+
+const MARK_RANGE = /^\s*([A-Za-z]*[-\s#./]*)(\d+)\s*(?:-|–|~|to|through|thru)\s*(?:\1)?(\d+)\s*$/i
+
+/**
+ * "S-1 to S-6" on one line of six identical packages becomes six lines, S-1 to S-6, one package each,
+ * so every box can be placed, labelled and checked on its own. It is only done when the quantity says
+ * exactly that many packages. A weight per package is copied; a weight for the whole range is shared
+ * out as an estimate to confirm; a weight that does not say which is left for the planner.
+ */
+export function expandMarkRange(line: ReviewLine): ReviewLine[] {
+  const match = MARK_RANGE.exec(line.sku)
+  if (!match) return [line]
+  const [, prefix = "", fromText = "", toText = ""] = match
+  const from = Number(fromText)
+  const to = Number(toText)
+  const count = to - from + 1
+  const quantity = readCount(line.quantity)
+  if (!(count >= 2 && count <= 500) || !quantity || quantity.value !== count) return [line]
+
+  const width = fromText.length > 1 && fromText.startsWith("0") ? fromText.length : 0
+  const marks = Array.from({ length: count }, (_, offset) => `${prefix}${String(from + offset).padStart(width, "0")}`)
+  const listed = `Listed as ${line.sku.trim()} (${count} packages): one line per package.`
+  const weight = line.weight.trim() ? parseWeight(line.weight, line.weightUnit) : null
+  const shares = weight && weight.ok && line.weightScope === "line" ? shareOut(weight.kg, marks.map((mark) => ({ id: mark, pieces: 1 }))).perPiece : null
+
+  return marks.map((mark, offset) => {
+    const each: ReviewLine = { ...line, id: `${line.id}-${offset + 1}`, sku: mark, quantity: "1", infoNotes: [...line.infoNotes, listed], original: { ...line.original, sku: line.sku, quantity: line.quantity } }
+    if (line.weight.trim() === "" || line.weightScope === "piece") return each
+    if (shares) {
+      return { ...each, weight: "", estimatedWeight: trimNumber(shares.get(mark)!), estimateBasis: `equal share of the ${trimNumber(weight!.ok ? weight!.kg : 0)} kg given for ${line.sku.trim()}` }
+    }
+    return { ...each, weight: "", checks: [...line.checks, `The weight ${line.weight.trim()} was given for ${line.sku.trim()} without saying whether it is per package or for all ${count}. Enter the weight of this package.`] }
+  })
+}
+
+/**
+ * Fills in the equal-share estimates straight away when that is the reasonable reading: the document gives a total
+ * gross weight, the packages without a weight are all the same size, and no line carries an estimate yet. They are
+ * still estimates (shown as such, confirmed before a load plan). Packages of different sizes are only offered the
+ * split, because their real weights may differ a lot.
+ */
+export function withSuggestedEstimates(lines: ReviewLine[], totals: DocumentTotals | null | undefined): ReviewLine[] {
+  if (lines.some((line) => line.estimatedWeight)) return lines
+  const suggestion = suggestWeightDistribution(lines, lines.map(evaluateLine), totals?.weightKg)
+  return suggestion && suggestion.sameSize ? applyWeightEstimates(lines, suggestion) : lines
 }
