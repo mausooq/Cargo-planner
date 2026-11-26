@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from "react"
-import { Check } from "lucide-react"
+import { Check, Package, Plane, Ship, Truck } from "lucide-react"
+import type { EquipmentMode } from "@compass/domain"
 import { cn } from "@/lib/utils"
 
 /*
@@ -220,5 +221,106 @@ export function StepProgress({ steps, compact = false, label }: { steps: { name:
         )
       })}
     </ol>
+  )
+}
+
+export type PastelTone = "mint" | "lavender" | "blue" | "amber"
+
+const PASTEL_CLASS: Record<PastelTone, string> = {
+  mint: "pastel-mint",
+  lavender: "pastel-lavender",
+  blue: "pastel-blue",
+  amber: "pastel-amber",
+}
+
+/**
+ * A read-only summary figure on a full pastel card (mint, lavender, blue or amber): accent-coloured icon and label,
+ * a large value and an optional hint. `tone` colours the hint for estimates (warning) or missing values (danger).
+ */
+export function SummaryCard({
+  icon: Icon,
+  tint,
+  label,
+  value,
+  hint,
+  tone = "neutral",
+  title,
+}: {
+  icon: ComponentType<{ className?: string }>
+  tint: PastelTone
+  label: string
+  value: ReactNode
+  hint?: ReactNode
+  tone?: "neutral" | "warning" | "danger"
+  title?: string
+}) {
+  return (
+    <div className={cn(PASTEL_CLASS[tint], "pastel-surface lift flex min-w-0 items-center gap-4 p-5")} title={title}>
+      <span data-tile="" className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-white/75 text-[var(--pc-accent)] shadow-soft dark:bg-white/10">
+        <Icon className="size-7" aria-hidden="true" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-label text-[var(--pc-accent)]">{label}</p>
+        <p className="text-[30px] leading-9 font-extrabold tracking-tight tabular-nums" suppressHydrationWarning>
+          {value}
+        </p>
+        {hint ? (
+          <p className={cn("text-meta", tone === "warning" ? "font-medium text-amber-800 dark:text-amber-300" : tone === "danger" ? "font-medium text-red-700 dark:text-red-400" : "text-muted-foreground")}>
+            {hint}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+/** Icon and pastel tint for each transport mode, shared by the dashboard and the project header. */
+export const TRANSPORT_ICON: Record<EquipmentMode, ComponentType<{ className?: string }>> = { SEA: Ship, AIR: Plane, ROAD: Truck, PALLET: Package }
+export const TRANSPORT_TINT: Record<EquipmentMode, Tint> = { SEA: "blue", AIR: "lavender", ROAD: "mint", PALLET: "amber" }
+
+/** A titled white panel for page sections (a table, an extraction summary). */
+export function SectionCard({
+  icon,
+  title,
+  description,
+  actions,
+  children,
+  className,
+  banded = false,
+}: {
+  icon?: ComponentType<{ className?: string }>
+  title?: ReactNode
+  description?: ReactNode
+  actions?: ReactNode
+  children: ReactNode
+  className?: string
+  /** Put the title on the Ocean Lavender band used by table headers. */
+  banded?: boolean
+}) {
+  return (
+    <section className={cn("surface-card min-w-0 overflow-hidden", className)}>
+      {title ? (
+        <div className={cn("flex flex-wrap items-center gap-3 px-5 pt-4 pb-3", banded && "bg-table-head border-b border-[var(--table-border)] pb-4")}>
+          {icon ? (
+            banded ? (
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/75 text-[var(--table-head-fg)] shadow-soft dark:bg-white/10">
+                {(() => {
+                  const Icon = icon
+                  return <Icon className="size-5" aria-hidden="true" />
+                })()}
+              </span>
+            ) : (
+              <IconTile icon={icon} tint="mint" size="sm" />
+            )
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <h3 className={cn("text-[17px] leading-6 font-bold", banded && "text-[var(--table-head-fg)]")}>{title}</h3>
+            {description ? <p className={cn("text-meta", banded ? "text-[var(--table-head-fg)]/80" : "text-muted-foreground")}>{description}</p> : null}
+          </div>
+          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        </div>
+      ) : null}
+      {children}
+    </section>
   )
 }

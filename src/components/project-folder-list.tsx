@@ -14,11 +14,8 @@ import {
   List,
   Package,
   Pencil,
-  Plane,
   PlaneTakeoff,
   Search,
-  Ship,
-  Truck,
   X,
 } from "lucide-react"
 import Link from "next/link"
@@ -29,7 +26,7 @@ import { equipmentModeSchema, modeLabel, type EquipmentMode } from "@compass/dom
 import { duplicateProject, removeEquipmentFromProject } from "@/app/actions/projects"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DeleteProjectButton } from "@/components/delete-project-button"
-import { FilterChip, FOCUS_RING, ICON_ACTION, IconTile, pillClass, Segmented, StatCard, StepProgress, type PillTone, type StepState, type Tint } from "@/components/design-system"
+import { FilterChip, FOCUS_RING, ICON_ACTION, IconTile, pillClass, Segmented, StatCard, StepProgress, TRANSPORT_ICON, TRANSPORT_TINT, type PillTone, type StepState, type Tint } from "@/components/design-system"
 import { ProjectEditDialog } from "@/components/project-edit-form"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -64,8 +61,8 @@ type View = "cards" | "list"
 
 const STATUS_TONE: Record<ProjectStatus["tone"], PillTone> = { neutral: "neutral", action: "info", warning: "warning", success: "success" }
 
-const MODE_ICON: Record<EquipmentMode, ComponentType<{ className?: string }>> = { SEA: Ship, AIR: Plane, ROAD: Truck, PALLET: Package }
-const MODE_TINT: Record<EquipmentMode, Tint> = { SEA: "blue", AIR: "lavender", ROAD: "mint", PALLET: "amber" }
+const MODE_ICON = TRANSPORT_ICON
+const MODE_TINT = TRANSPORT_TINT
 const STEP_NAMES = ["Cargo", "Equipment", "Calculate", "Load Plan"]
 
 function parseMode(mode: string): EquipmentMode {

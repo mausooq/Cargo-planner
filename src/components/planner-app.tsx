@@ -2,14 +2,15 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, ArrowRight, Pencil } from "lucide-react"
+import { ArrowLeft, ArrowRight, CalendarDays, Pencil } from "lucide-react"
 import { modeLabel, PLANNER_STEPS, plannerStepSchema, type EquipmentMode, type PlannerStep } from "@compass/domain"
 import { toast } from "sonner"
 import { CargoGrid, type CargoLine } from "@/components/cargo-grid"
-import { plannableLines } from "@/lib/cargo-validation"
+import { cargoTotals, plannableLines } from "@/lib/cargo-validation"
 import { CargoImportWizard, type SavedMapping } from "@/components/cargo-import-wizard"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DeleteProjectButton } from "@/components/delete-project-button"
+import { IconTile, TRANSPORT_ICON, TRANSPORT_TINT } from "@/components/design-system"
 import { ProjectEditDialog } from "@/components/project-edit-form"
 import { EquipmentSetup, type EquipmentChoice, type EquipmentSetupHandle } from "@/components/equipment-setup"
 import { PlanWorkspace, type PlanWorkspaceHandle } from "@/components/plan-workspace"
@@ -17,8 +18,9 @@ import { PlannerSteps, STEP_LABELS, type StepState } from "@/components/planner-
 import { StepLoader } from "@/components/step-loader"
 import { Button } from "@/components/ui/button"
 import type { EquipmentListItem } from "@/lib/equipment-catalog"
-import { formatDate } from "@/lib/format"
+import { formatDate, formatKg, formatM3 } from "@/lib/format"
 import { derivePlanStatus, type PlanStatus } from "@/lib/plan-status"
+import { cn } from "@/lib/utils"
 import type { PlanView } from "@/lib/plan-view"
 
 const NEED_CARGO = "Add at least one cargo line with a name, sizes, weight, and quantity."
@@ -97,6 +99,10 @@ export function PlannerApp({
       maxCount: choices.find((choice) => choice.equipmentTypeId === item.id)?.maxCount ?? 1,
     }))
   const readyLines = plannableLines(cargo)
+  // The redesigned look (workspace gradient, brand font, roomier bottom bar) applies to the steps redesigned so far.
+  const redesigned = step === "data"
+  const projectMode = project.mode
+  const cargoSum = cargoTotals(cargo)
   const hasCargo = readyLines.length > 0
   const pieces = readyLines.reduce((sum, line) => sum + line.quantity, 0)
   const unitCount = choices.reduce((sum, choice) => sum + (choice.maxCount ?? 1), 0)
@@ -147,6 +153,7 @@ export function PlannerApp({
       done: planReady,
       blocked: lockedReason("workspace"),
       summary: planStatus.label,
+      attention: planStatus.tone === "warning" || planStatus.tone === "danger",
     },
     plan: { done: false, blocked: lockedReason("plan"), summary: planReady ? "3D, sequence, export" : undefined },
   }
@@ -250,40 +257,79 @@ export function PlannerApp({
           : "Done, back to projects"
 
   return (
-    <div className="flex min-h-[calc(100vh-3.5rem)] flex-col">
-      <div className="border-b bg-card">
-        <div className="mx-auto flex w-full max-w-[1800px] flex-wrap items-center gap-3 px-4 pt-3 pb-2.5">
-          <button
-            type="button"
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground hover:text-foreground"
-            aria-label="Back to all projects"
-            title="All projects"
-            onClick={() => void navigate("dashboard")}
-          >
-            <ArrowLeft className="size-4" />
-          </button>
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-lg leading-tight font-semibold">{project.name}</h1>
-            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">{modeLabel(project.mode)}</span>
-              <span>{project.etd ? `ETD ${formatDate(project.etd)}` : "ETD missing"}</span>
-              {project.notes ? <span className="truncate">· {project.notes}</span> : null}
-            </p>
+    <div className={cn("flex min-h-[calc(100vh-3.5rem)] flex-col", redesigned && "bg-workspace font-brand")}>
+      {redesigned ? (
+        // Shipment details and the four steps sit on the workspace gradient, with no white band.
+        <div className="mx-auto w-full max-w-[1800px] space-y-4 px-4 pt-5 pb-1">
+          <div className="flex flex-wrap items-center gap-4">
+            <button
+              type="button"
+              className="press flex size-11 shrink-0 items-center justify-center rounded-xl border bg-card text-muted-foreground shadow-soft outline-none hover:border-primary/40 hover:text-primary focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              aria-label="Back to all projects"
+              title="All projects"
+              onClick={() => void navigate("dashboard")}
+            >
+              <ArrowLeft className="size-5" />
+            </button>
+            <IconTile icon={TRANSPORT_ICON[projectMode]} tint={TRANSPORT_TINT[projectMode]} size="md" title={modeLabel(projectMode)} />
+            <div className="min-w-0 flex-1">
+              <h1 className="text-[26px] leading-8 font-extrabold tracking-tight break-words">{project.name}</h1>
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-meta text-muted-foreground">
+                <span className="rounded-full bg-card/80 px-2.5 py-0.5 font-semibold text-foreground shadow-soft">{modeLabel(projectMode)}</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-card/80 px-2.5 py-0.5 shadow-soft" suppressHydrationWarning>
+                  <CalendarDays className="size-3.5" aria-hidden="true" />
+                  {project.etd ? `ETD ${formatDate(project.etd)}` : "ETD missing"}
+                </span>
+                {project.notes ? <span className="break-words">{project.notes}</span> : null}
+              </p>
+            </div>
+            <div className="ml-auto flex flex-wrap gap-2">
+              {canEdit ? (
+                <Button type="button" variant="outline" className="press h-10 rounded-xl bg-card px-4 text-button shadow-soft hover:border-primary/40" onClick={() => setEditing(true)}>
+                  <Pencil className="size-4" />
+                  Edit details
+                </Button>
+              ) : null}
+              {canDelete ? <DeleteProjectButton projectId={project.id} name={project.name} redirectTo="/dashboard" className="press h-10 rounded-xl px-4 text-button hover:bg-destructive/10 hover:text-destructive" /> : null}
+            </div>
           </div>
-          <div className="ml-auto flex flex-wrap gap-2">
-            {canEdit ? (
-              <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
-                <Pencil className="size-3.5" />
-                Edit details
-              </Button>
-            ) : null}
-            {canDelete ? <DeleteProjectButton projectId={project.id} name={project.name} redirectTo="/dashboard" /> : null}
-          </div>
-        </div>
-        <div className="mx-auto w-full max-w-[1800px] px-4 pb-3">
           <PlannerSteps step={step} states={states} onChange={(target) => void navigate(target)} />
         </div>
-      </div>
+      ) : (
+        <div className="border-b bg-card">
+          <div className="mx-auto flex w-full max-w-[1800px] flex-wrap items-center gap-3 px-4 pt-3 pb-2.5">
+            <button
+              type="button"
+              className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground hover:text-foreground"
+              aria-label="Back to all projects"
+              title="All projects"
+              onClick={() => void navigate("dashboard")}
+            >
+              <ArrowLeft className="size-4" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-lg leading-tight font-semibold">{project.name}</h1>
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">{modeLabel(project.mode)}</span>
+                <span>{project.etd ? `ETD ${formatDate(project.etd)}` : "ETD missing"}</span>
+                {project.notes ? <span className="truncate">· {project.notes}</span> : null}
+              </p>
+            </div>
+            <div className="ml-auto flex flex-wrap gap-2">
+              {canEdit ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
+                  <Pencil className="size-3.5" />
+                  Edit details
+                </Button>
+              ) : null}
+              {canDelete ? <DeleteProjectButton projectId={project.id} name={project.name} redirectTo="/dashboard" /> : null}
+            </div>
+          </div>
+          <div className="mx-auto w-full max-w-[1800px] px-4 pb-3">
+            <PlannerSteps step={step} states={states} onChange={(target) => void navigate(target)} />
+          </div>
+        </div>
+      )}
 
       {canEdit ? (
         <ProjectEditDialog
@@ -374,12 +420,33 @@ export function PlannerApp({
           </div>
         </div>
 
-        <div className="sticky bottom-0 z-10 -mx-4 mt-6 flex items-center justify-between gap-3 border-t bg-background/95 px-4 py-3 backdrop-blur">
-          <Button type="button" variant="outline" onClick={() => void back()} disabled={busy !== null}>
+        <div
+          className={cn(
+            "sticky bottom-0 z-10 -mx-4 mt-6 flex items-center justify-between gap-3 border-t px-4 py-3 backdrop-blur",
+            redesigned ? "bg-card/90 shadow-[0_-8px_24px_-12px_rgb(16_24_40/0.12)]" : "bg-background/95",
+          )}
+        >
+          <Button type="button" variant="outline" className={cn(redesigned && "press h-11 rounded-xl px-4 text-button")} onClick={() => void back()} disabled={busy !== null}>
             <ArrowLeft className="size-4" />
             {step === "data" ? "All projects" : `Back: ${STEP_LABELS[PLANNER_STEPS[PLANNER_STEPS.indexOf(step) - 1] ?? "data"]}`}
           </Button>
-          <Button type="button" onClick={() => void next()} disabled={busy !== null}>
+          {redesigned && cargo.length > 0 ? (
+            <p className="hidden min-w-0 flex-wrap items-center justify-center gap-x-5 gap-y-1 text-meta text-muted-foreground tabular-nums md:flex" aria-label="Cargo totals">
+              <span>
+                <span className="font-semibold text-foreground">{cargo.length}</span> line{cargo.length === 1 ? "" : "s"}
+              </span>
+              <span>
+                <span className="font-semibold text-foreground">{cargoSum.pieces.toLocaleString("en-US")}</span> package{cargoSum.pieces === 1 ? "" : "s"}
+              </span>
+              <span>
+                Gross <span className="font-semibold text-foreground">{formatKg(cargoSum.weightKg)}</span>
+              </span>
+              <span>
+                Volume <span className="font-semibold text-foreground">{formatM3(cargoSum.volumeM3)}</span>
+              </span>
+            </p>
+          ) : null}
+          <Button type="button" className={cn(redesigned && "press h-11 rounded-xl px-5 text-button shadow-soft")} onClick={() => void next()} disabled={busy !== null}>
             {busy ?? nextLabel}
             {busy ? null : <ArrowRight className="size-4" />}
           </Button>

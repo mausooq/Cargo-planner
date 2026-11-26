@@ -1,9 +1,12 @@
 "use client"
 
-import { AlertTriangle, ChevronDown, ChevronRight, FileSearch, Loader2, Plus, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Boxes, ChevronDown, ChevronRight, FileSearch, ListChecks, Loader2, Package, Plus, Scale, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react"
 import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { IconTile, SectionCard, StatusPill, SummaryCard } from "@/components/design-system"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DocumentPreview, sourceName, type SourceView } from "@/components/document-preview"
+import { SelectMenu } from "@/components/ui/select-menu"
 import { Input } from "@/components/ui/input"
 import { LENGTH_UNIT_LABEL, LENGTH_UNITS, LENGTH_UNIT_SYMBOL, type LengthUnit } from "@/lib/cargo-units"
 import type { ReviewDocument } from "@/lib/cargo-extract"
@@ -37,7 +40,7 @@ import {
   type WeightKind,
   type WeightScope,
 } from "@/lib/import-review"
-import { applyEdit, applySizeUnit, applyWeightUnit, dimensionText, sourceTarget, weightPatch } from "@/lib/import-edit"
+import { applyEdit, applySizeUnit, applyWeightUnit, dimensionText, weightPatch } from "@/lib/import-edit"
 import { IMPORT_WEIGHT_UNIT_LABEL, IMPORT_WEIGHT_UNITS, type ImportWeightUnit } from "@/lib/import-units"
 import { useLengthUnit } from "@/lib/length-unit-pref"
 import { cn } from "@/lib/utils"
@@ -49,11 +52,7 @@ import { cn } from "@/lib/utils"
  * is saved from here; the parent receives the lines when the planner confirms.
  */
 
-export type SourceView =
-  | { kind: "image"; url: string; name: string }
-  | { kind: "pdf"; url: string; name: string }
-  | { kind: "text"; text: string }
-  | { kind: "sheet"; name: string; headers: string[] | null; rows: { rowNumber: number; cells: string[] }[]; truncated: boolean }
+export type { SourceView } from "@/components/document-preview"
 
 export type ImportChoice = { mode: "append" | "replace"; confirmReplace: boolean; suggest: boolean }
 
@@ -104,7 +103,8 @@ export function CargoImportReview({
   const [note, setNote] = useState<string | null>(null)
   const [mode, setMode] = useState<"append" | "replace">("append")
   const [confirmReplace, setConfirmReplace] = useState(false)
-  const [sourceOpen, setSourceOpen] = useState(false)
+  // The original document is docked beside the table while the import is open; the planner can hide it.
+  const [previewOpen, setPreviewOpen] = useState(true)
   const [detailsId, setDetailsId] = useState<string | null>(null)
   const [nextId, setNextId] = useState(1)
   const [pickedSizeUnit, setPickedSizeUnit] = useState<LengthUnit>("cm")
@@ -163,253 +163,272 @@ export function CargoImportReview({
 
   const blockers = incompleteEntries.flatMap((entry) => entry.evaluation.issues.slice(0, 1).map((issue) => `Row ${entry.number}: ${issue.message}`)).slice(0, 3)
 
+  const activeLine = lines.find((line) => line.id === activeId) ?? null
+  const fromAi = document.reader.provider !== ""
+  const status = document.partial
+    ? { tone: "warning" as const, label: "Partly read" }
+    : summary.needReview > 0
+      ? { tone: "warning" as const, label: `${summary.needReview} to review` }
+      : { tone: "success" as const, label: "Ready to add" }
+
   return (
-    <section className="space-y-4 rounded-md border bg-card p-4" aria-label="Review imported cargo">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <Sparkles className={cn("size-4 shrink-0 text-primary", document.reader.provider === "" && "hidden")} aria-hidden="true" />
-            Review before adding
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {document.summary || "Check the lines against your document."}
-            {document.language ? ` Language: ${document.language}.` : ""}
-            {document.reader.provider === "" ? " Read from your spreadsheet columns; no AI was used." : ` Read by ${document.reader.provider}${document.reader.model ? ` (${document.reader.model})` : ""}. It can misread a number, so compare the lines with your document.`}
-          </p>
+    <section className="space-y-5" aria-label="Review imported cargo">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <IconTile icon={Package} tint="mint" size="lg" />
+          <div className="min-w-0">
+            <h2 className="text-[26px] leading-8 font-extrabold tracking-tight">Cargo Review</h2>
+            <p className="mt-1 text-page-desc text-muted-foreground">
+              {fromAi ? "Review the cargo read from your packing list and confirm it before it is added." : "Review the cargo read from your spreadsheet and confirm it before it is added."}
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {source ? (
-            <Button type="button" size="sm" variant="outline" onClick={() => setSourceOpen(true)}>
+          {source && !previewOpen ? (
+            <Button type="button" variant="outline" className="press h-10 rounded-xl" onClick={() => setPreviewOpen(true)}>
               <FileSearch className="size-4" />
-              View original
+              Show document
             </Button>
           ) : null}
-          <Button type="button" size="sm" variant="outline" onClick={onBack} disabled={importing}>
+          <Button type="button" variant="outline" className="press h-10 rounded-xl" onClick={onBack} disabled={importing}>
+            <ArrowLeft className="size-4" />
             Back
           </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={onCancel} disabled={importing}>
+          <Button type="button" variant="ghost" className="press h-10 rounded-xl" onClick={onCancel} disabled={importing}>
             Cancel
           </Button>
         </div>
       </div>
 
-      {document.partial ? (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-900 dark:bg-red-500/10 dark:text-red-200" role="alert">
-          Only part of the document may have been read. Check that no lines are missing before adding.
-        </p>
-      ) : null}
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
+        {source && previewOpen ? <DocumentPreview source={source} line={activeLine} onClose={() => setPreviewOpen(false)} /> : null}
 
-      <DocumentFacts document={document} />
+        <div className="min-w-0 flex-1 space-y-5">
+          <ReviewFigures summary={summary} />
 
-      <PleaseCheck groups={groups} documentNotes={[...document.notes, ...totalNotes]} lineCount={lines.length} />
-
-      {suggestion && estimatedNow.length === 0 && suggestion.estimates.size > 0 ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-dashed border-amber-500 bg-amber-50/60 px-3 py-2 text-sm dark:bg-amber-500/10">
-          <span>
-            {suggestion.estimates.size === 1 ? "One line has" : `${suggestion.estimates.size} lines have`} no weight, but the document gives a total gross weight.
-            An {suggestion.basis} would be {[...suggestion.estimates.values()][0]} kg each.
-            {suggestion.sameSize ? "" : " The packages differ in size, so their real weights may differ a lot."}
-          </span>
-          <Button type="button" size="sm" variant="outline" onClick={() => setLines((current) => applyWeightEstimates(current, suggestion))}>
-            Use as estimates
-          </Button>
-        </div>
-      ) : null}
-      {estimatedNow.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-dashed border-amber-500 bg-amber-50/60 px-3 py-2 text-sm dark:bg-amber-500/10">
-          <span>
-            {estimatedNow.length} weight{estimatedNow.length === 1 ? " is an estimate" : "s are estimates"} (marked est.). They can be used for a provisional equipment
-            suggestion; confirm them before a load plan is calculated.
-          </span>
-          <Button type="button" size="sm" variant="outline" onClick={() => setLines((current) => acceptWeightEstimates(current))}>
-            Confirm the estimates
-          </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={() => setLines((current) => clearWeightEstimates(current))}>
-            Remove estimates
-          </Button>
-        </div>
-      ) : null}
-
-      {needSizeUnit.length > 0 || needWeightUnit.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border border-amber-500/50 bg-amber-50/60 px-3 py-2 text-sm dark:bg-amber-500/10">
-          {needSizeUnit.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span>
-                {needSizeUnit.length} row{needSizeUnit.length === 1 ? " has" : "s have"} sizes with no unit stated. The numbers are kept as read.
-              </span>
-              <select className={select} value={pickedSizeUnit} onChange={(event) => setPickedSizeUnit(event.target.value as LengthUnit)} aria-label="Unit of the sizes">
-                {LENGTH_UNITS.map((entry) => (
-                  <option key={entry} value={entry}>
-                    {LENGTH_UNIT_LABEL[entry]}
-                  </option>
-                ))}
-              </select>
-              <Button type="button" size="sm" variant="outline" onClick={useSizeUnit}>
-                Use for {needSizeUnit.length === 1 ? "this row" : `these ${needSizeUnit.length} rows`}
-              </Button>
+          <SectionCard
+            banded
+            icon={Sparkles}
+            title={fromAi ? "AI extraction" : "Read from your spreadsheet"}
+            description={
+              <>
+                {source ? sourceName(source) : "Your document"} · {summary.detected} line{summary.detected === 1 ? "" : "s"} found
+                {document.language ? ` · ${document.language}` : ""}
+                {fromAi ? ` · read by ${document.reader.provider}${document.reader.model ? ` (${document.reader.model})` : ""}` : " · no AI used"}
+              </>
+            }
+            actions={<StatusPill tone={status.tone}>{status.label}</StatusPill>}
+          >
+            <div className="space-y-3 px-5 pb-5">
+              {document.summary ? <p className="text-detail">{document.summary}</p> : null}
+              {fromAi ? <p className="text-meta text-muted-foreground">The reader can misread a number, so compare the lines with your document.</p> : null}
+              {document.partial ? (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-900 dark:bg-red-500/10 dark:text-red-200" role="alert">
+                  Only part of the document may have been read. Check that no lines are missing before adding.
+                </p>
+              ) : null}
+              <DocumentFacts document={document} />
+              <PleaseCheck groups={groups} documentNotes={[...document.notes, ...totalNotes]} lineCount={lines.length} />
+              {suggestion && estimatedNow.length === 0 && suggestion.estimates.size > 0 ? (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-dashed border-amber-500 bg-amber-50/60 px-3 py-2 text-sm dark:bg-amber-500/10">
+                  <span>
+                    {suggestion.estimates.size === 1 ? "One line has" : `${suggestion.estimates.size} lines have`} no weight, but the document gives a total gross weight.
+                    An {suggestion.basis} would be {[...suggestion.estimates.values()][0]} kg each.
+                    {suggestion.sameSize ? "" : " The packages differ in size, so their real weights may differ a lot."}
+                  </span>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setLines((current) => applyWeightEstimates(current, suggestion))}>
+                    Use as estimates
+                  </Button>
+                </div>
+              ) : null}
+              {estimatedNow.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-dashed border-amber-500 bg-amber-50/60 px-3 py-2 text-sm dark:bg-amber-500/10">
+                  <span>
+                    {estimatedNow.length} weight{estimatedNow.length === 1 ? " is an estimate" : "s are estimates"} (marked est.). They can be used for a provisional equipment
+                    suggestion; confirm them before a load plan is calculated.
+                  </span>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setLines((current) => acceptWeightEstimates(current))}>
+                    Confirm the estimates
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setLines((current) => clearWeightEstimates(current))}>
+                    Remove estimates
+                  </Button>
+                </div>
+              ) : null}
+              {needSizeUnit.length > 0 || needWeightUnit.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border border-amber-500/50 bg-amber-50/60 px-3 py-2 text-sm dark:bg-amber-500/10">
+                  {needSizeUnit.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>
+                        {needSizeUnit.length} row{needSizeUnit.length === 1 ? " has" : "s have"} sizes with no unit stated. The numbers are kept as read.
+                      </span>
+                      <SelectMenu label="Unit of the sizes" value={pickedSizeUnit} onChange={setPickedSizeUnit} className="w-44" options={LENGTH_UNITS.map((entry) => ({ value: entry, label: LENGTH_UNIT_LABEL[entry] }))} />
+                      <Button type="button" size="sm" variant="outline" onClick={useSizeUnit}>
+                        Use for {needSizeUnit.length === 1 ? "this row" : `these ${needSizeUnit.length} rows`}
+                      </Button>
+                    </div>
+                  ) : null}
+                  {needWeightUnit.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>
+                        {needWeightUnit.length} row{needWeightUnit.length === 1 ? " has" : "s have"} a weight with no unit stated.
+                      </span>
+                      <SelectMenu label="Unit of the weights" value={pickedWeightUnit} onChange={setPickedWeightUnit} className="w-44" options={IMPORT_WEIGHT_UNITS.map((entry) => ({ value: entry, label: IMPORT_WEIGHT_UNIT_LABEL[entry] }))} />
+                      <Button type="button" size="sm" variant="outline" onClick={useWeightUnit}>
+                        Use for {needWeightUnit.length === 1 ? "this row" : `these ${needWeightUnit.length} rows`}
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <ValueLegend />
             </div>
-          ) : null}
-          {needWeightUnit.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span>
-                {needWeightUnit.length} row{needWeightUnit.length === 1 ? " has" : "s have"} a weight with no unit stated.
+          </SectionCard>
+
+          <SectionCard
+            banded
+            icon={Boxes}
+            title={`Extracted cargo lines (${lines.length})`}
+            description={
+              <span role="status" aria-live="polite">
+                {note ?? "Click any cell to edit it. A highlighted cell says what needs attention when you select it."}
               </span>
-              <select className={select} value={pickedWeightUnit} onChange={(event) => setPickedWeightUnit(event.target.value as ImportWeightUnit)} aria-label="Unit of the weights">
-                {IMPORT_WEIGHT_UNITS.map((entry) => (
-                  <option key={entry} value={entry}>
-                    {IMPORT_WEIGHT_UNIT_LABEL[entry]}
-                  </option>
-                ))}
-              </select>
-              <Button type="button" size="sm" variant="outline" onClick={useWeightUnit}>
-                Use for {needWeightUnit.length === 1 ? "this row" : `these ${needWeightUnit.length} rows`}
-              </Button>
+            }
+            actions={
+              <div className="flex items-center gap-2">
+                <span className="text-meta text-muted-foreground">Sizes in</span>
+                <SelectMenu
+                  label="Unit the sizes are shown in"
+                  value={unit}
+                  onChange={setUnit}
+                  className="w-48"
+                  options={LENGTH_UNITS.map((entry) => ({ value: entry, label: `${LENGTH_UNIT_LABEL[entry]}${entry === documentUnit ? " (document)" : ""}` }))}
+                />
+              </div>
+            }
+          >
+            <div className="cargo-sheet max-h-[68vh] overflow-auto">
+              <table className="data-table w-full min-w-[60rem] text-left text-sm">
+                <thead className="sticky top-0 z-10">
+                  <tr>
+                    <th className="w-8 px-2 py-2.5">
+                      <span className="sr-only">Add</span>
+                    </th>
+                    <th className="px-2 py-2.5 font-semibold">Mark</th>
+                    <th className="px-2 py-2.5 font-semibold">Name</th>
+                    <th className="px-2 py-2.5 text-right font-semibold" title={`Length in ${LENGTH_UNIT_LABEL[unit]}`}>
+                      L ({LENGTH_UNIT_SYMBOL[unit]})
+                    </th>
+                    <th className="px-2 py-2.5 text-right font-semibold" title={`Width in ${LENGTH_UNIT_LABEL[unit]}`}>
+                      W ({LENGTH_UNIT_SYMBOL[unit]})
+                    </th>
+                    <th className="px-2 py-2.5 text-right font-semibold" title={`Height in ${LENGTH_UNIT_LABEL[unit]}`}>
+                      H ({LENGTH_UNIT_SYMBOL[unit]})
+                    </th>
+                    <th className="px-2 py-2.5 text-right font-semibold" title="Weight of one piece, in kilograms. The gross weight (with packaging) when the document gives one.">
+                      kg / piece
+                    </th>
+                    <th className="px-2 py-2.5 text-right font-semibold">Qty</th>
+                    <th className="px-2 py-2.5 font-semibold" title="Whether other cargo may be placed on top">
+                      Stackable
+                    </th>
+                    <th className="px-2 py-2.5 font-semibold">Status</th>
+                    <th className="w-24 px-2 py-2.5">
+                      <span className="sr-only">Row actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                      {lines.length === 0 ? (
+                        <tr>
+                          <td colSpan={11} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                            No cargo lines were found. Add one by hand, or go back and try another file.
+                          </td>
+                        </tr>
+                      ) : null}
+                      {lines.map((line, index) => (
+                        <ReviewRow
+                          key={line.id}
+                          number={index + 1}
+                          line={line}
+                          evaluation={evaluations[index]!}
+                          duplicates={duplicates.get(line.id) ?? []}
+                          unit={unit}
+                          active={line.id === activeId}
+                          hasSource={source !== null}
+                          onActive={(message) => {
+                            setActiveId(line.id)
+                            setNote(message ? `Row ${index + 1}: ${message}` : null)
+                          }}
+                          onEdit={(patch, touched) => edit(line.id, patch, touched)}
+                          onDetails={() => setDetailsId(line.id)}
+                          onSource={() => {
+                            setActiveId(line.id)
+                            setPreviewOpen(true)
+                          }}
+                          onRemove={() => setLines((current) => current.filter((entry) => entry.id !== line.id))}
+                        />
+                      ))}
+                </tbody>
+              </table>
             </div>
-          ) : null}
-        </div>
-      ) : null}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--table-border)] bg-[var(--table-total-bg)] px-5 py-3">
+              <Button type="button" variant="outline" size="sm" className="press rounded-lg" onClick={addLine}>
+                <Plus className="size-4" />
+                Add a cargo line
+              </Button>
+              <Totals summary={summary} />
+            </div>
+          </SectionCard>
 
-      <p className="min-h-5 text-xs text-muted-foreground" role="status" aria-live="polite">
-        {note ?? "Click any cell to edit it. A highlighted cell says what needs attention when you select it."}
-      </p>
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>
-          Values as in the document · <span className="rounded border border-sky-500 px-1">calc</span> worked out ·{" "}
-          <span className="rounded border border-dashed border-amber-500 px-1">est.</span> estimate to confirm ·{" "}
-          <span className="rounded border border-red-500 px-1">red</span> missing or invalid · Stackable “Not stated” is planned as not stackable
-        </span>
-        <label className="flex items-center gap-2">
-          Sizes shown in
-          <select className={select} value={unit} onChange={(event) => setUnit(event.target.value as LengthUnit)} aria-label="Unit the sizes are shown in">
-            {LENGTH_UNITS.map((entry) => (
-              <option key={entry} value={entry}>
-                {LENGTH_UNIT_LABEL[entry]}
-                {entry === documentUnit ? " (document)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="overflow-x-auto rounded-md border">
-        <table className="w-full min-w-[60rem] text-left text-sm">
-          <thead>
-            <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
-              <th className="w-8 px-2 py-2">
-                <span className="sr-only">Add</span>
-              </th>
-              <th className="px-2 py-2 font-medium">Mark</th>
-              <th className="px-2 py-2 font-medium">Name</th>
-              <th className="px-2 py-2 text-right font-medium" title={`Length in ${LENGTH_UNIT_LABEL[unit]}`}>
-                L ({LENGTH_UNIT_SYMBOL[unit]})
-              </th>
-              <th className="px-2 py-2 text-right font-medium" title={`Width in ${LENGTH_UNIT_LABEL[unit]}`}>
-                W ({LENGTH_UNIT_SYMBOL[unit]})
-              </th>
-              <th className="px-2 py-2 text-right font-medium" title={`Height in ${LENGTH_UNIT_LABEL[unit]}`}>
-                H ({LENGTH_UNIT_SYMBOL[unit]})
-              </th>
-              <th className="px-2 py-2 text-right font-medium" title="Weight of one piece, in kilograms. The gross weight (with packaging) when the document gives one.">
-                kg / piece
-              </th>
-              <th className="px-2 py-2 text-right font-medium">Qty</th>
-              <th className="px-2 py-2 font-medium" title="Whether other cargo may be placed on top">
-                Stackable
-              </th>
-              <th className="px-2 py-2 font-medium">Status</th>
-              <th className="w-24 px-2 py-2">
-                <span className="sr-only">Row actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.length === 0 ? (
-              <tr>
-                <td colSpan={11} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  No cargo lines were found. Add one by hand, or go back and try another file.
-                </td>
-              </tr>
+          <div className="surface-card space-y-4 p-5">
+            {existing.length > 0 ? (
+              <fieldset className="space-y-2 text-sm">
+                <legend className="font-medium">
+                  This project already has {existing.length} cargo line{existing.length === 1 ? "" : "s"}
+                </legend>
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="import-mode" checked={mode === "append"} onChange={() => setMode("append")} />
+                  Add these lines to the existing cargo
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="radio" name="import-mode" checked={mode === "replace"} onChange={() => setMode("replace")} />
+                  Replace the existing cargo with these lines
+                </label>
+                {mode === "replace" ? (
+                  <label className="flex items-start gap-2 rounded-md bg-red-50 px-3 py-2 text-red-900 dark:bg-red-500/10 dark:text-red-200">
+                    <input type="checkbox" className="mt-1" checked={confirmReplace} onChange={(event) => setConfirmReplace(event.target.checked)} />
+                    <span>
+                      Remove the {existing.length} existing line{existing.length === 1 ? "" : "s"}. Their places in any saved load plan are removed too, and the plan will need calculating again. This cannot be undone.
+                    </span>
+                  </label>
+                ) : null}
+              </fieldset>
             ) : null}
-            {lines.map((line, index) => (
-              <ReviewRow
-                key={line.id}
-                number={index + 1}
-                line={line}
-                evaluation={evaluations[index]!}
-                duplicates={duplicates.get(line.id) ?? []}
-                unit={unit}
-                active={line.id === activeId}
-                hasSource={source !== null}
-                onActive={(message) => {
-                  setActiveId(line.id)
-                  setNote(message ? `Row ${index + 1}: ${message}` : null)
-                }}
-                onEdit={(patch, touched) => edit(line.id, patch, touched)}
-                onDetails={() => setDetailsId(line.id)}
-                onSource={() => {
-                  setActiveId(line.id)
-                  setSourceOpen(true)
-                }}
-                onRemove={() => setLines((current) => current.filter((entry) => entry.id !== line.id))}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={addLine}>
-          <Plus className="size-4" />
-          Add a cargo line
-        </Button>
-        <Totals summary={summary} />
-      </div>
-
-      {existing.length > 0 ? (
-        <fieldset className="space-y-2 text-sm">
-          <legend className="font-medium">
-            This project already has {existing.length} cargo line{existing.length === 1 ? "" : "s"}
-          </legend>
-          <label className="flex items-center gap-2">
-            <input type="radio" name="import-mode" checked={mode === "append"} onChange={() => setMode("append")} />
-            Add these lines to the existing cargo
-          </label>
-          <label className="flex items-center gap-2">
-            <input type="radio" name="import-mode" checked={mode === "replace"} onChange={() => setMode("replace")} />
-            Replace the existing cargo with these lines
-          </label>
-          {mode === "replace" ? (
-            <label className="flex items-start gap-2 rounded-md bg-red-50 px-3 py-2 text-red-900 dark:bg-red-500/10 dark:text-red-200">
-              <input type="checkbox" className="mt-1" checked={confirmReplace} onChange={(event) => setConfirmReplace(event.target.checked)} />
-              <span>
-                Remove the {existing.length} existing line{existing.length === 1 ? "" : "s"}. Their places in any saved load plan are removed too, and the plan will need calculating again. This cannot be undone.
-              </span>
-            </label>
-          ) : null}
-        </fieldset>
-      ) : null}
-
-      <div className="space-y-2 border-t pt-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" onClick={() => submit(true)} disabled={!canSuggest}>
-            {importing ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-            Add {included.length} line{included.length === 1 ? "" : "s"} and suggest equipment
-          </Button>
-          <Button type="button" variant="outline" onClick={() => submit(false)} disabled={!canAddOnly}>
-            Add lines only
-          </Button>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" className="press h-11 rounded-xl px-5 text-button shadow-soft" onClick={() => submit(true)} disabled={!canSuggest}>
+                  {importing ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                  Add {included.length} line{included.length === 1 ? "" : "s"} and suggest equipment
+                </Button>
+                <Button type="button" variant="outline" className="press h-11 rounded-xl px-5 text-button" onClick={() => submit(false)} disabled={!canAddOnly}>
+                  Add lines only
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground" role="status">
+                {included.length === 0
+                  ? "Select at least one line."
+                  : mode === "replace" && !confirmReplace
+                    ? "Confirm the replacement to continue."
+                    : undraftable.length > 0
+                      ? `${undraftable.length === 1 ? "A line needs" : `${undraftable.length} lines need`} a quantity and a description or mark before ${undraftable.length === 1 ? "it" : "they"} can be added, even as a draft (${describeRows(undraftable.map((entry) => entry.number))}).`
+                      : incompleteEntries.length > 0
+                        ? `Equipment suggestions need every selected line complete. ${incompleteEntries.length} ${incompleteEntries.length === 1 ? "line is" : "lines are"} not (${describeRows(incompleteEntries.map((entry) => entry.number))}).${blockers.length > 0 ? ` ${blockers.join(" ")}` : ""} Fix ${incompleteEntries.length === 1 ? "it" : "them"} here, or use Add lines only: ${incompleteEntries.length === 1 ? "it is" : "they are"} added as ${incompleteEntries.length === 1 ? "a draft" : "drafts"} for you to finish in the Cargo grid, and left out of equipment suggestions and load plans until then.`
+                        : `${complete.length} line${complete.length === 1 ? " is" : "s are"} complete. Nothing is added until you choose.`}
+              </p>
+            </div>
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground" role="status">
-          {included.length === 0
-            ? "Select at least one line."
-            : mode === "replace" && !confirmReplace
-              ? "Confirm the replacement to continue."
-              : undraftable.length > 0
-                ? `${undraftable.length === 1 ? "A line needs" : `${undraftable.length} lines need`} a quantity and a description or mark before ${undraftable.length === 1 ? "it" : "they"} can be added, even as a draft (${describeRows(undraftable.map((entry) => entry.number))}).`
-                : incompleteEntries.length > 0
-                  ? `Equipment suggestions need every selected line complete. ${incompleteEntries.length} ${incompleteEntries.length === 1 ? "line is" : "lines are"} not (${describeRows(incompleteEntries.map((entry) => entry.number))}).${blockers.length > 0 ? ` ${blockers.join(" ")}` : ""} Fix ${incompleteEntries.length === 1 ? "it" : "them"} here, or use Add lines only: ${incompleteEntries.length === 1 ? "it is" : "they are"} added as ${incompleteEntries.length === 1 ? "a draft" : "drafts"} for you to finish in the Cargo grid, and left out of equipment suggestions and load plans until then.`
-                  : `${complete.length} line${complete.length === 1 ? " is" : "s are"} complete. Nothing is added until you choose.`}
-        </p>
       </div>
 
       <LineDetails
@@ -420,22 +439,6 @@ export function CargoImportReview({
         onEdit={(patch, touched) => detailsLine && edit(detailsLine.id, patch, touched)}
         onConfirm={(what) => detailsLine && confirm(detailsLine.id, what)}
       />
-
-      {source ? (
-        <Dialog open={sourceOpen} onOpenChange={setSourceOpen}>
-          <DialogContent className="flex h-[88vh] max-w-[min(64rem,95vw)] flex-col overflow-hidden">
-            <DialogHeader>
-              <DialogTitle>Original document</DialogTitle>
-              <DialogDescription>
-                {lines.find((line) => line.id === activeId) && describeSource(lines.find((line) => line.id === activeId)!.source)
-                  ? `Selected line: ${describeSource(lines.find((line) => line.id === activeId)!.source)}`
-                  : "Closing this keeps everything you have edited."}
-              </DialogDescription>
-            </DialogHeader>
-            <SourcePanel source={source} line={lines.find((line) => line.id === activeId) ?? null} />
-          </DialogContent>
-        </Dialog>
-      ) : null}
     </section>
   )
 }
@@ -487,6 +490,78 @@ function PleaseCheck({ groups, documentNotes, lineCount }: { groups: { required:
         </div>
       ) : null}
     </div>
+  )
+}
+
+/** The four review figures: packages, gross weight, volume and lines to review, from the lines as they stand. */
+function ReviewFigures({ summary }: { summary: ReturnType<typeof summarize> }) {
+  const lines = (count: number, what: string) => `${count} line${count === 1 ? "" : "s"} ${what}`
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
+      <SummaryCard
+        icon={Package}
+        tint="mint"
+        label="Total packages"
+        value={summary.pieces.toLocaleString("en-US")}
+        hint={summary.piecesUnknownLines > 0 ? lines(summary.piecesUnknownLines, "without a quantity") : `${summary.included} of ${summary.detected} lines selected`}
+        tone={summary.piecesUnknownLines > 0 ? "warning" : "neutral"}
+      />
+      <SummaryCard
+        icon={Scale}
+        tint="lavender"
+        label="Gross weight"
+        value={formatKg(summary.weightKg)}
+        hint={
+          summary.weightUnresolvedLines > 0
+            ? lines(summary.weightUnresolvedLines, "without a settled weight")
+            : summary.estimatedWeightLines > 0
+              ? `Includes ${lines(summary.estimatedWeightLines, "estimated")}`
+              : "From the lines' weights"
+        }
+        tone={summary.weightUnresolvedLines > 0 ? "danger" : summary.estimatedWeightLines > 0 ? "warning" : "neutral"}
+      />
+      <SummaryCard
+        icon={Boxes}
+        tint="blue"
+        label="Cargo volume"
+        value={formatM3(summary.volumeM3)}
+        hint={summary.volumeUnresolvedLines > 0 ? lines(summary.volumeUnresolvedLines, "without a known size") : "From the lines' sizes"}
+        tone={summary.volumeUnresolvedLines > 0 ? "warning" : "neutral"}
+      />
+      <SummaryCard
+        icon={ListChecks}
+        tint="amber"
+        label="Lines to review"
+        value={summary.needReview}
+        hint={summary.needReview > 0 ? "Something to fix or confirm" : "Every selected line is clear"}
+        tone={summary.needReview > 0 ? "warning" : "neutral"}
+      />
+    </div>
+  )
+}
+
+/** How a value got into the table, so extracted, worked-out, estimated, missing and confirmed values are told apart. */
+function ValueLegend() {
+  const chip = "inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-medium"
+  return (
+    <p className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-meta text-muted-foreground">
+      <span className="flex items-center gap-1.5">
+        <span className={cn(chip, "border-border bg-card text-foreground")}>123</span> as in the document
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className={cn(chip, "border-sky-500 text-sky-700 dark:text-sky-300")}>calc</span> worked out
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className={cn(chip, "border-dashed border-amber-500 bg-tint-amber text-tint-amber-foreground")}>est.</span> estimate to confirm
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className={cn(chip, "border-red-500 bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300")}>missing</span> missing or invalid
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className={cn(chip, "border-transparent", STATUS_STYLE.corrected)}>Edited</span> confirmed by you
+      </span>
+      <span>Stackable “Not stated” is planned as not stackable.</span>
+    </p>
   )
 }
 
@@ -696,7 +771,7 @@ function ReviewRow({
           onCommit={(text) => onEdit({ quantity: text.trim() }, ["quantity"])}
         />
       </td>
-      <td className="w-24 px-1 py-1">
+      <td className="w-32 min-w-32 px-1 py-1">
         <select
           className={cn(select, "w-full")}
           aria-label={`Stackable, line ${number}`}
@@ -959,87 +1034,6 @@ function LineDetails({
 }
 
 // ---- the original ------------------------------------------------------------------------------------------------------
-
-function SourcePanel({ source, line }: { source: SourceView; line: ReviewLine | null }) {
-  const target = line ? sourceTarget(line.source) : { kind: "none" as const }
-  const quote = target.kind === "quote" || line?.source.quote ? line?.source.quote : undefined
-  const page = target.kind === "page" ? target.page : 1
-  const row = target.kind === "row" ? target.row : undefined
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-card">
-      <div className="min-h-0 flex-1 overflow-auto">
-        {source.kind === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element -- a local preview of the planner's own file
-          <img src={source.url} alt={`Preview of ${source.name}`} className="mx-auto max-w-full" />
-        ) : source.kind === "pdf" ? (
-          // The browser's own PDF viewer: zoom, page navigation and search work as they do everywhere.
-          <iframe key={page} title={`Preview of ${source.name}`} src={`${source.url}#page=${page}`} className="h-full min-h-96 w-full" />
-        ) : source.kind === "text" ? (
-          <HighlightedText text={source.text} quote={quote} />
-        ) : (
-          <SheetPreview source={source} row={row} />
-        )}
-      </div>
-      {quote && source.kind !== "text" ? (
-        <p className="border-t px-3 py-2 text-xs">
-          Text the reader used: <span className="italic">{quote}</span>
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-function HighlightedText({ text, quote }: { text: string; quote: string | undefined }) {
-  const at = quote ? text.toLowerCase().indexOf(quote.toLowerCase()) : -1
-  return (
-    <pre className="p-3 text-xs break-words whitespace-pre-wrap">
-      {at >= 0 && quote ? (
-        <>
-          {text.slice(0, at)}
-          <mark className="rounded bg-amber-200 px-0.5 text-foreground dark:bg-amber-500/40">{text.slice(at, at + quote.length)}</mark>
-          {text.slice(at + quote.length)}
-        </>
-      ) : (
-        text
-      )}
-    </pre>
-  )
-}
-
-function SheetPreview({ source, row }: { source: Extract<SourceView, { kind: "sheet" }>; row: number | undefined }) {
-  return (
-    <div className="text-xs">
-      <table className="w-full border-collapse">
-        {source.headers ? (
-          <thead>
-            <tr className="bg-muted/60">
-              <th className="sticky top-0 border-b px-2 py-1 text-left font-medium text-muted-foreground">Row</th>
-              {source.headers.map((header, index) => (
-                <th key={`${header}-${index}`} className="sticky top-0 border-b bg-muted/60 px-2 py-1 text-left font-medium">
-                  {header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-        ) : null}
-        <tbody>
-          {source.rows.map((entry) => (
-            <tr key={entry.rowNumber} className={cn("border-b border-border/60", entry.rowNumber === row && "bg-amber-100 dark:bg-amber-500/20")} aria-current={entry.rowNumber === row ? "true" : undefined}>
-              <td className="px-2 py-1 text-muted-foreground tabular-nums">{entry.rowNumber}</td>
-              {entry.cells.map((cell, index) => (
-                <td key={index} className="max-w-48 truncate px-2 py-1" title={cell}>
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {source.truncated ? <p className="px-3 py-2 text-muted-foreground">Only the top of the sheet is shown here. All rows are read.</p> : null}
-      {row !== undefined && !source.rows.some((entry) => entry.rowNumber === row) ? <p className="px-3 py-2 text-muted-foreground">Row {row} is below the part of the sheet shown here.</p> : null}
-    </div>
-  )
-}
 
 /** What the document itself states for the whole shipment, next to what the lines add up to. Shown only when it states something. */
 function DocumentFacts({ document }: { document: ReviewDocument }) {

@@ -13,12 +13,15 @@ export function DeleteProjectButton({
   name,
   redirectTo,
   label = "Delete project",
+  className,
 }: {
   projectId: string
   name: string
   /** Where to go after deleting. Omit to stay and refresh the current page. */
   redirectTo?: string
   label?: string
+  /** Extra classes for the labelled button. */
+  className?: string
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -26,7 +29,7 @@ export function DeleteProjectButton({
   return (
     <>
       {label ? (
-        <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        <Button type="button" variant="ghost" size="sm" className={className} onClick={() => setOpen(true)}>
           <Trash2 className="size-3.5" />
           {label}
         </Button>

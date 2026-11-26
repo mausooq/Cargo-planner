@@ -36,6 +36,36 @@
   --elev-soft: 0 1px 2px rgb(16 24 40 / 0.04), 0 2px 8px -2px rgb(16 24 40 / 0.06);
   /* Workspace background for the redesigned pages (static). */
   --workspace-bg: linear-gradient(120deg, #e0f0e8 0%, #e8eef9 55%, #f0e8f5 100%);
+  /* Pastel summary cards: background, border and accent for each tone. */
+  --pastel-mint-bg: #e4f4eb;
+  --pastel-mint-border: #bfdcce;
+  --pastel-mint-accent: #105b4b;
+  --pastel-lavender-bg: #f0e9fa;
+  --pastel-lavender-border: #d9cbef;
+  --pastel-lavender-accent: #7952b3;
+  --pastel-blue-bg: #e5effc;
+  --pastel-blue-border: #c6d9ef;
+  --pastel-blue-accent: #3269a4;
+  --pastel-amber-bg: #fff4df;
+  --pastel-amber-border: #efdcb8;
+  --pastel-amber-accent: #a16b16;
+  /* Ocean Lavender data tables. */
+  --table-head-bg: linear-gradient(110deg, #d5e9df 0%, #dfe9f7 50%, #e8dff3 100%);
+  --table-head-end: #e8dff3;
+  --table-head-fg: #24483f;
+  --table-row: #ffffff;
+  --table-row-alt: #f6f8fb;
+  --table-row-hover: #e8f3ee;
+  --table-total-bg: #e4f0e9;
+  --table-total-fg: #105b4b;
+  --table-border: #d3e3dd;
+  /* Workflow stepper. */
+  --step-active: #105b4b;
+  --step-done-bg: #d5e9df;
+  --step-done-fg: #105b4b;
+  --step-line-done: #8bb9a8;
+  --step-line: #cfd8df;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235c6370' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --elev-lift: 0 14px 28px -10px rgb(16 24 40 / 0.16), 0 4px 10px -4px rgb(16 24 40 / 0.08);
   --chart-1: #105b4b;
   --chart-2: #3f4a56;
@@ -76,6 +106,33 @@
   --elev-raised: 0 6px 16px rgb(0 0 0 / 0.45);
   --elev-soft: 0 1px 2px rgb(0 0 0 / 0.35), 0 2px 8px -2px rgb(0 0 0 / 0.3);
   --workspace-bg: linear-gradient(120deg, #111a17 0%, #121722 55%, #18131d 100%);
+  --pastel-mint-bg: #15302a;
+  --pastel-mint-border: #25503f;
+  --pastel-mint-accent: #8fd1bb;
+  --pastel-lavender-bg: #241f38;
+  --pastel-lavender-border: #3e3362;
+  --pastel-lavender-accent: #c4b5f2;
+  --pastel-blue-bg: #172639;
+  --pastel-blue-border: #2b4464;
+  --pastel-blue-accent: #9cc0ef;
+  --pastel-amber-bg: #32270f;
+  --pastel-amber-border: #5a4520;
+  --pastel-amber-accent: #f1c878;
+  --table-head-bg: linear-gradient(110deg, #1b382f 0%, #1c293b 50%, #29223e 100%);
+  --table-head-end: #29223e;
+  --table-head-fg: #cfe6dc;
+  --table-row: #1a1d21;
+  --table-row-alt: #1e2227;
+  --table-row-hover: #1d2f28;
+  --table-total-bg: #172e28;
+  --table-total-fg: #8fd1bb;
+  --table-border: #2b3a35;
+  --step-active: #3d8f7a;
+  --step-done-bg: #1d3a31;
+  --step-done-fg: #8fd1bb;
+  --step-line-done: #3f6b5c;
+  --step-line: #343c44;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239aa3ad' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --elev-lift: 0 16px 32px -10px rgb(0 0 0 / 0.6), 0 4px 10px -4px rgb(0 0 0 / 0.4);
   --chart-1: #3d8f7a;
   --chart-2: #98a2b3;
@@ -227,6 +284,42 @@
   background: var(--workspace-bg);
 }
 
+/* A pastel surface in one of the four tones (mint, lavender, blue, amber); set --pastel to the tone name's variables
+   through the pastel-* utilities below. Works with lift: hover brightens the tone and borders it with the accent. */
+@utility pastel-mint {
+  --pc-bg: var(--pastel-mint-bg);
+  --pc-border: var(--pastel-mint-border);
+  --pc-accent: var(--pastel-mint-accent);
+}
+@utility pastel-lavender {
+  --pc-bg: var(--pastel-lavender-bg);
+  --pc-border: var(--pastel-lavender-border);
+  --pc-accent: var(--pastel-lavender-accent);
+}
+@utility pastel-blue {
+  --pc-bg: var(--pastel-blue-bg);
+  --pc-border: var(--pastel-blue-border);
+  --pc-accent: var(--pastel-blue-accent);
+}
+@utility pastel-amber {
+  --pc-bg: var(--pastel-amber-bg);
+  --pc-border: var(--pastel-amber-border);
+  --pc-accent: var(--pastel-amber-accent);
+}
+@utility pastel-surface {
+  border-radius: var(--radius-card);
+  border: 1px solid var(--pc-border);
+  background-color: var(--pc-bg);
+  box-shadow: var(--elev-soft);
+  --lift-bg: color-mix(in oklab, var(--pc-bg) 70%, var(--card));
+  --lift-border: color-mix(in oklab, var(--pc-accent) 55%, var(--pc-border));
+}
+
+/* The Ocean Lavender band: table headers and section title bars. */
+@utility bg-table-head {
+  background: var(--table-head-bg);
+}
+
 @utility surface-card {
   border-radius: var(--radius-card);
   border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
@@ -240,9 +333,9 @@
   transition-timing-function: var(--ease-soft);
   &:hover {
     transform: translateY(-3px);
-    border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
+    border-color: var(--lift-border, color-mix(in oklab, var(--primary) 45%, var(--border)));
     box-shadow: var(--elev-lift);
-    background-color: color-mix(in oklab, var(--tint-mint) 22%, var(--card));
+    background-color: var(--lift-bg, color-mix(in oklab, var(--tint-mint) 22%, var(--card)));
   }
   &:hover [data-tile] {
     transform: scale(1.06);
@@ -262,6 +355,89 @@
   &:active:not(:disabled) {
     transform: scale(0.97);
   }
+}
+
+/* ---------- Data tables (Ocean Lavender) ----------
+   One gradient across the whole header row (painted on <thead>, so it never restarts per column), alternating
+   rows, a mint hover, a mint totals row and soft borders. In the components layer, so a row's own utility classes
+   (selected, invalid) still win: decoration never hides a validation state. */
+@layer components {
+  .data-table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .data-table thead {
+    background: var(--table-head-bg);
+  }
+  .data-table thead th {
+    background: transparent;
+    color: var(--table-head-fg);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 700;
+    padding-top: 0.8rem;
+    padding-bottom: 0.8rem;
+    border-bottom: 1px solid var(--table-border);
+    white-space: nowrap;
+  }
+  /* A header cell pinned to the right edge needs a solid colour: the gradient's end. */
+  .data-table thead th.sticky {
+    background: var(--table-head-end);
+  }
+  .data-table tbody tr {
+    background-color: var(--table-row);
+    border-color: var(--table-border);
+    transition: background-color var(--duration-soft) var(--ease-soft);
+  }
+  .data-table tbody tr:nth-child(even) {
+    background-color: var(--table-row-alt);
+  }
+  .data-table tbody tr:hover {
+    background-color: var(--table-row-hover);
+  }
+  .data-table tbody td,
+  .data-table tfoot td {
+    border-color: var(--table-border);
+  }
+  /* Pinned body cells take their row's colour, so hover and alternation run under them too. */
+  .data-table tbody td.sticky {
+    background-color: inherit;
+  }
+  .data-table tfoot tr,
+  .data-table tfoot td {
+    background-color: var(--table-total-bg);
+    color: var(--table-total-fg);
+  }
+  /* Dropdowns inside rows stay native (arrow keys move between rows), styled to match the custom ones. */
+  .data-table select {
+    appearance: none;
+    border-radius: 0.5rem;
+    padding-right: 1.75rem;
+    font-size: 0.875rem;
+    background-image: var(--select-chevron);
+    background-repeat: no-repeat;
+    background-position: right 0.45rem center;
+    background-size: 0.95rem;
+    cursor: pointer;
+  }
+}
+
+/* Editable sheets (the Cargo grid and the import review). Cells read as text, with a faint underline that says
+   "editable"; the full border returns on row hover and on focus. Cells that carry a highlight (missing, invalid,
+   estimated, worked out) keep it: they are excluded by their classes. Unlayered so it applies over the input's defaults. */
+.cargo-sheet :is(input:not([type="checkbox"]):not([type="radio"]), select):not([aria-invalid="true"]):not([class*="border-amber"]):not([class*="border-red"]):not([class*="border-destructive"]):not([class*="border-dashed"]):not([class*="border-sky"]):not(:focus) {
+  border-color: transparent;
+  background-color: transparent;
+  box-shadow: inset 0 -1px 0 color-mix(in oklab, var(--border) 85%, transparent);
+}
+.cargo-sheet tr:hover :is(input:not([type="checkbox"]):not([type="radio"]), select):not([aria-invalid="true"]):not([class*="border-amber"]):not([class*="border-red"]):not([class*="border-destructive"]):not([class*="border-dashed"]):not([class*="border-sky"]):not(:focus):not(:disabled) {
+  border-color: var(--border);
+  background-color: var(--card);
+  box-shadow: none;
+}
+.cargo-sheet input[type="checkbox"],
+.cargo-sheet input[type="radio"] {
+  accent-color: var(--primary);
 }
 
 /* Printed load plan report: always light, no app chrome, one unit per page. */

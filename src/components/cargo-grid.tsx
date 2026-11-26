@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react"
 import { cargoItemInputSchema, type AxisRotation, type CargoItemInput, type CargoShape } from "@compass/domain"
-import { AlertCircle, Check, Copy, Download, FileDown, FileUp, Loader2, Plus, Trash2 } from "lucide-react"
+import { AlertCircle, Boxes, Check, Copy, Download, FileDown, FileUp, ListChecks, Loader2, Package, Plus, Scale, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import {
   addCargoItem,
@@ -21,8 +21,11 @@ import {
 } from "@/components/allowed-orientations-dialog"
 import { openCargoImport } from "@/components/cargo-import-wizard"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { IconTile, SummaryCard } from "@/components/design-system"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { SelectMenu } from "@/components/ui/select-menu"
+import { Switch } from "@/components/ui/switch"
 import { downloadCargoWorkbook } from "@/lib/cargo-export"
 import { columnsAfter, tableMinWidthRem, visibleColumns } from "@/lib/cargo-grid-columns"
 import {
@@ -117,6 +120,21 @@ export function CargoGrid({
   const allSelected = lines.length > 0 && selectedIds.length === lines.length
   const totals = cargoTotals(lines)
   const incomplete = lines.filter((line) => !isPlannable(line)).length
+  // Lines that need a look: incomplete, carrying an unconfirmed estimated weight, or with stacking not stated.
+  const estimated = lines.filter((line) => line.weightEstimate && Math.abs(line.weightEstimate.perPieceKg - line.weightKg) < 0.0001).length
+  const stackingUnknown = lines.filter((line) => line.stackableNotStated && !line.stackable).length
+  const unweighed = lines.filter((line) => !(line.weightKg > 0)).length
+  const unsized = lines.filter((line) => !(line.lengthCm > 0 && line.widthCm > 0 && line.heightCm > 0)).length
+  const toReview = lines.filter(
+    (line) => !isPlannable(line) || (line.weightEstimate && Math.abs(line.weightEstimate.perPieceKg - line.weightKg) < 0.0001) || (line.stackableNotStated && !line.stackable),
+  ).length
+  const reviewHint = [
+    incomplete > 0 ? `${incomplete} incomplete` : null,
+    estimated > 0 ? `${estimated} estimated weight${estimated === 1 ? "" : "s"}` : null,
+    stackingUnknown > 0 ? `${stackingUnknown} stacking not stated` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
   const advancedInUse = lines.filter(
     (line) => line.bottomOnly || line.priority !== 0 || line.destinationStop !== 1,
   ).length
@@ -241,80 +259,117 @@ export function CargoGrid({
     ) : null
 
   return (
-    <section className="space-y-3" aria-label="Cargo lines">
-      <div className="flex flex-wrap items-center gap-2">
-        {canEdit ? (
-          <>
-            <Button type="button" onClick={() => void addLine()} disabled={adding}>
-              <Plus className="size-4" />
-              {adding ? "Adding…" : "Add line"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={openCargoImport}
-              title="Upload an Excel, CSV, PDF or image file, paste a screenshot, or paste text. You review every line before it is added. You can also drop a file anywhere on this page."
-            >
-              <FileUp className="size-4" />
-              Import packing list
-            </Button>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">View only. Planners and admins can edit cargo.</p>
-        )}
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void exportExcel()}
-          disabled={exporting || lines.length === 0}
-          title={lines.length === 0 ? "Add cargo first" : "Download this cargo list as an Excel file"}
-        >
-          {exporting ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
-          Export to Excel
-        </Button>
-        {canEdit ? (
-          <Button asChild variant="link" className="px-1">
-            <a href="/api/cargo-template" download title="An empty Excel sheet with the right columns to fill in">
-              <Download className="size-4" />
-              Template
-            </a>
+    <section className="space-y-5" aria-label="Cargo lines">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <IconTile icon={Package} tint="mint" size="lg" />
+          <div className="min-w-0">
+            <h2 className="text-page-title">Cargo</h2>
+            <p className="mt-1 text-page-desc text-muted-foreground">
+              {canEdit ? "Add, import and check the packages to be loaded before choosing equipment." : "View only. Planners and admins can edit cargo."}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canEdit ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="press h-11 rounded-xl px-4 text-button"
+                onClick={openCargoImport}
+                title="Upload an Excel, CSV, PDF or image file, paste a screenshot, or paste text. You review every line before it is added. You can also drop a file anywhere on this page."
+              >
+                <FileUp className="size-4" />
+                Import packing list
+              </Button>
+              <Button type="button" className="press h-11 rounded-xl px-5 text-button shadow-soft" onClick={() => void addLine()} disabled={adding}>
+                <Plus className="size-4" />
+                {adding ? "Adding…" : "Add line"}
+              </Button>
+            </>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            className="press h-11 rounded-xl px-4 text-button"
+            onClick={() => void exportExcel()}
+            disabled={exporting || lines.length === 0}
+            title={lines.length === 0 ? "Add cargo first" : "Download this cargo list as an Excel file"}
+          >
+            {exporting ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
+            Export to Excel
           </Button>
-        ) : null}
-        <div className="ml-auto flex flex-wrap items-center gap-3 text-sm">
-          <span aria-live="polite">{saveLabel}</span>
-          <label className="flex items-center gap-2">
-            <span className="text-muted-foreground">Sizes in</span>
-            <select
-              aria-label="Length unit"
-              className="h-9 rounded-md border bg-background px-2 text-sm"
-              value={unit}
-              onChange={(event) => writeLengthUnit(event.target.value as LengthUnit)}
-            >
-              {LENGTH_UNITS.map((entry) => (
-                <option key={entry} value={entry}>
-                  {LENGTH_UNIT_LABEL[entry]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={showAdvanced}
-              onChange={(event) => writeAdvanced(event.target.checked)}
-            />
-            <span>
-              More columns
-              {!showAdvanced && advancedInUse > 0 ? (
-                <span className="text-muted-foreground"> ({advancedInUse} in use)</span>
-              ) : null}
-            </span>
-          </label>
+          {canEdit ? (
+            <Button asChild variant="link" className="px-1 text-button">
+              <a href="/api/cargo-template" download title="An empty Excel sheet with the right columns to fill in">
+                <Download className="size-4" />
+                Template
+              </a>
+            </Button>
+          ) : null}
         </div>
       </div>
 
+      {lines.length > 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard icon={Package} tint="mint" label="Total packages" value={totals.pieces.toLocaleString("en-US")} hint={`${lines.length} cargo line${lines.length === 1 ? "" : "s"}`} />
+          <SummaryCard
+            icon={Scale}
+            tint="lavender"
+            label="Total gross weight"
+            value={formatKg(totals.weightKg)}
+            hint={unweighed > 0 ? `${unweighed} line${unweighed === 1 ? "" : "s"} without a weight` : estimated > 0 ? `Includes ${estimated} estimated weight${estimated === 1 ? "" : "s"}` : "Across all pieces"}
+            tone={unweighed > 0 ? "danger" : estimated > 0 ? "warning" : "neutral"}
+          />
+          <SummaryCard
+            icon={Boxes}
+            tint="blue"
+            label="Total cargo volume"
+            value={formatM3(totals.volumeM3)}
+            hint={unsized > 0 ? `${unsized} line${unsized === 1 ? "" : "s"} without a full size` : "Across all pieces"}
+            tone={unsized > 0 ? "warning" : "neutral"}
+          />
+          <SummaryCard
+            icon={ListChecks}
+            tint="amber"
+            label="Lines requiring review"
+            value={toReview}
+            hint={toReview > 0 ? reviewHint : "Every line is ready to plan"}
+            tone={toReview > 0 ? "warning" : "neutral"}
+          />
+        </div>
+      ) : null}
+
+      {lines.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-4">
+          <span className="text-meta" aria-live="polite">
+            {saveLabel}
+          </span>
+          <div className="ml-auto flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-meta text-muted-foreground">Sizes in</span>
+              <SelectMenu
+                label="Length unit"
+                value={unit}
+                onChange={(next) => writeLengthUnit(next)}
+                className="w-48"
+                options={LENGTH_UNITS.map((entry) => ({ value: entry, label: LENGTH_UNIT_LABEL[entry] }))}
+              />
+            </div>
+            <label className="flex cursor-pointer items-center gap-2.5 text-detail">
+              <Switch checked={showAdvanced} onCheckedChange={(checked) => writeAdvanced(checked)} aria-label="More columns" />
+              <span>
+                More columns
+                {!showAdvanced && advancedInUse > 0 ? <span className="text-muted-foreground"> ({advancedInUse} in use)</span> : null}
+              </span>
+            </label>
+          </div>
+        </div>
+      ) : null}
+
       {canEdit && selectedIds.length > 0 ? (
-        <div className="flex flex-wrap items-end gap-3 rounded-md border bg-muted/40 p-3" aria-label="Change selected lines">
+        <div className="flex flex-wrap items-end gap-3 rounded-[var(--radius-card)] border border-primary/30 bg-tint-mint/50 p-4 shadow-soft" aria-label="Change selected lines">
           <div className="w-full flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-medium">
               {selectedIds.length} line{selectedIds.length === 1 ? "" : "s"} selected
@@ -340,31 +395,28 @@ export function CargoGrid({
             />
           </BulkField>
           <BulkField label="Shape">
-            <select
-              className="h-9 rounded-md border bg-background px-2 text-sm"
+            <SelectMenu
+              label="Shape for the selected lines"
               value={bulk.shape}
-              onChange={(event) => setBulk({ ...bulk, shape: event.target.value as BulkPatch["shape"] })}
-            >
-              <option value="">Keep</option>
-              {SHAPES.map((entry) => (
-                <option key={entry.value} value={entry.value}>
-                  {entry.label}
-                </option>
-              ))}
-            </select>
+              onChange={(shape) => setBulk({ ...bulk, shape })}
+              className="w-40"
+              options={[{ value: "" as BulkPatch["shape"], label: "Keep" }, ...SHAPES.map((entry) => ({ value: entry.value as BulkPatch["shape"], label: entry.label }))]}
+            />
           </BulkField>
           <BulkField label="Stacking">
-            <select
-              className="h-9 rounded-md border bg-background px-2 text-sm"
+            <SelectMenu
+              label="Stacking for the selected lines"
               value={bulk.stackable}
-              onChange={(event) => setBulk({ ...bulk, stackable: event.target.value as BulkPatch["stackable"] })}
-            >
-              <option value="">Keep</option>
-              <option value="yes">Can stack</option>
-              <option value="no">Do not stack</option>
-            </select>
+              onChange={(stackable) => setBulk({ ...bulk, stackable })}
+              className="w-44"
+              options={[
+                { value: "" as BulkPatch["stackable"], label: "Keep" },
+                { value: "yes" as BulkPatch["stackable"], label: "Can stack" },
+                { value: "no" as BulkPatch["stackable"], label: "Do not stack" },
+              ]}
+            />
           </BulkField>
-          <Button type="button" size="sm" onClick={() => void applyBulk()}>
+          <Button type="button" className="press h-11 rounded-xl px-4 text-button" onClick={() => void applyBulk()}>
             Apply to selected
           </Button>
           <div className="ml-auto flex gap-2">
@@ -391,7 +443,7 @@ export function CargoGrid({
       />
 
       {lines.length === 0 ? (
-        <div className="rounded-md border border-dashed bg-card px-4 py-10 text-center">
+        <div className="rounded-[var(--radius-card)] border border-dashed bg-card px-4 py-12 text-center shadow-soft">
           <p className="text-sm font-medium">No cargo yet</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
             {canEdit
@@ -400,11 +452,11 @@ export function CargoGrid({
           </p>
           {canEdit ? (
             <div className="mt-4 flex justify-center gap-2">
-              <Button type="button" onClick={() => void addLine()} disabled={adding}>
+              <Button type="button" className="press h-11 rounded-xl px-5 text-button" onClick={() => void addLine()} disabled={adding}>
                 <Plus className="size-4" />
                 Add first line
               </Button>
-              <Button type="button" variant="outline" onClick={openCargoImport}>
+              <Button type="button" variant="outline" className="press h-11 rounded-xl px-5 text-button" onClick={openCargoImport}>
                 <FileUp className="size-4" />
                 Import packing list
               </Button>
@@ -413,10 +465,10 @@ export function CargoGrid({
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto overflow-y-clip rounded-md border bg-card">
+          <div className="surface-card cargo-sheet max-h-[72vh] overflow-auto border-[var(--table-border)]">
             <table
               ref={tableRef}
-              className="w-full table-fixed border-collapse text-left text-sm"
+              className="data-table w-full table-fixed text-left text-sm"
               style={{ minWidth: `${tableMinWidthRem(showAdvanced)}rem` }}
             >
               <colgroup>
@@ -424,7 +476,7 @@ export function CargoGrid({
                   <col key={column.key} className={column.width} />
                 ))}
               </colgroup>
-              <thead className="cursor-default bg-muted/50 text-xs text-muted-foreground select-none">
+              <thead className="sticky top-0 z-10 cursor-default select-none">
                 <tr>
                   <th className="px-1 py-2">
                     <input
@@ -452,7 +504,7 @@ export function CargoGrid({
                       <Th title="Delivery stop number; stop 1 is unloaded first">Stop</Th>
                     </>
                   ) : null}
-                  <th className="sticky right-0 z-[1] border-l bg-muted px-1 py-2">
+                  <th className="sticky right-0 z-[1] border-l border-[var(--table-border)] px-1 py-2">
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -477,27 +529,27 @@ export function CargoGrid({
                   />
                 ))}
               </tbody>
-              <tfoot className="border-t-2 bg-muted/30 text-sm font-medium">
+              <tfoot className="sticky bottom-0 z-10 text-[15px] font-semibold shadow-[0_-1px_0_var(--table-border)]">
                 <tr>
                   <td />
                   <td className="px-2 py-2" colSpan={2}>
                     Total · {lines.length} line{lines.length === 1 ? "" : "s"}
                   </td>
-                  <td className="px-2 py-2 text-muted-foreground" colSpan={3}>
+                  <td className="px-2 py-2.5 font-bold tabular-nums" colSpan={3}>
                     {formatM3(totals.volumeM3)}
                   </td>
-                  <td className="px-2 py-2" colSpan={1}>
+                  <td className="px-2 py-2.5 font-bold tabular-nums" colSpan={1}>
                     {formatKg(totals.weightKg)}
                   </td>
-                  <td className="px-2 py-2">{totals.pieces}</td>
-                  <td colSpan={columnsAfter(showAdvanced, "quantity")} className="px-2 py-2 text-right text-xs font-normal text-muted-foreground">
+                  <td className="px-2 py-2.5 font-bold tabular-nums">{totals.pieces}</td>
+                  <td colSpan={columnsAfter(showAdvanced, "quantity")} className="px-2 py-2.5 text-right text-xs font-normal opacity-80">
                     Weight and volume are totals across all pieces.
                   </td>
                 </tr>
               </tfoot>
             </table>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-meta text-muted-foreground">
             <p>
               {incomplete > 0 ? (
                 <span className="text-amber-700 dark:text-amber-400">
@@ -607,7 +659,7 @@ function CargoRow({
 
   return (
     <tr
-      className={cn("border-t", selected && "bg-primary/5", hasErrors && "bg-destructive/5")}
+      className={cn("border-t", selected && "bg-tint-mint/60", hasErrors && "bg-destructive/5")}
       onFocus={() => setFocused(true)}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false)
@@ -755,7 +807,7 @@ function CargoRow({
       <td className="px-1 py-1">
         <select
           aria-label="Shape"
-          className="h-8 w-full min-w-0 rounded-md border bg-background px-1 text-xs"
+          className="h-8 w-full min-w-0 rounded-md border bg-background px-1.5 text-sm"
           value={draft.shape}
           disabled={!canEdit}
           onChange={(event) => {
@@ -811,7 +863,7 @@ function CargoRow({
           />
         </>
       ) : null}
-      <td className="sticky right-0 z-[1] border-l bg-card px-1 py-1">
+      <td className="sticky right-0 z-[1] border-l px-1 py-1">
         {canEdit ? (
           <div className="flex justify-end gap-0.5">
             <Button
