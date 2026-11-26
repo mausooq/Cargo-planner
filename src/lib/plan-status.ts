@@ -4,10 +4,10 @@
  * two parts of the screen can never say different things.
  *
  *  - not-calculated: there is no plan.
- *  - calculating:    a calculation is running (or a clearance change is being saved and applied).
+ *  - calculating:    a calculation is running.
  *  - failed:         the last calculation failed. A previous plan, if there is one, is still shown but is
  *                    out of date; it is never reported as ready.
- *  - out-of-date:    a plan exists but the project has changed since (cargo or clearance).
+ *  - out-of-date:    a plan exists but the project has changed since (its cargo changed).
  *  - ready:          a plan exists and matches the project.
  */
 
@@ -23,7 +23,7 @@ export type PlanStatus = {
 export function derivePlanStatus(input: {
   hasPlan: boolean
   calculating: boolean
-  /** The plan no longer matches the project's cargo or clearance settings. */
+  /** The plan no longer matches the project's cargo. */
   stale: boolean
   /** The last calculation or recalculation failed and has not been retried successfully. */
   failed: boolean

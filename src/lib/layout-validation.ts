@@ -1,12 +1,12 @@
 import { allowsHalfTurn, DEFAULT_PHYSICS_SETTINGS, parseRotation, validateDrop } from "@compass/physics"
 import { orientationsFor, type SolverCargo } from "@compass/solver"
 import { itemToPiece, unitToWorld } from "@/lib/cargo-physics"
-import { MIN_SUPPORT_PCT } from "@/lib/clearance"
+import { MIN_SUPPORT_PCT } from "@/lib/support-policy"
 import type { PlanItemView, PlanUnitView } from "@/lib/plan-view"
 
 /**
  * Server-side check of a hand-edited layout, using the same physics the Playground uses
- * (`validateDrop`: walls, collision, handling clearance, support, stacking and floor-only rules)
+ * (`validateDrop`: walls, collision, support, stacking and floor-only rules)
  * plus the cargo line's own rotation rules. It does not re-run the packer.
  *
  * A piece that was already invalid in the layout being replaced (a plan saved by an older version)
@@ -52,8 +52,8 @@ function sizesForAxes(cargo: LayoutCargoRules, axes: string): [number, number, n
 
 /**
  * Is the piece turned in a way its cargo line allows, and does its rotation code agree with its
- * sizes? The code matters because directional clearance follows it, so a client cannot claim a
- * different facing than the one the sizes imply.
+ * sizes? Plans saved by earlier versions can carry half-turn codes (`LWH@180`); they stay valid for
+ * any line that is not fixed, and a client cannot claim a code that disagrees with the sizes.
  */
 export function rotationProblem(item: PlanItemView, cargo: LayoutCargoRules): string | null {
   const legal = orientationsFor(cargo).some(
@@ -132,9 +132,9 @@ export function layoutProblems(
 
 /**
  * `before` is the layout being replaced, `after` the one to save. Returns the problems the save
- * introduces: pieces that moved (or changed turn or clearance) and are invalid, plus any piece that
+ * introduces: pieces that moved (or changed turn) and are invalid, plus any piece that
  * was fine before and is not now (for example something left floating after the piece under it
- * moved, or a piece that no longer has room for a larger clearance).
+ * moved).
  */
 export function checkLayoutChange(
   unit: Pick<PlanUnitView, "lengthCm" | "widthCm" | "heightCm">,

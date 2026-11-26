@@ -33,11 +33,8 @@ function line(id: string, extra: Partial<StalenessCargo> = {}): StalenessCargo {
 const cargo = [line("a"), line("b", { customFields: { allowedRotations: "LWH,WLH" } })]
 
 /** A plan as the packer stores it for this project. */
-function planFor(lines: StalenessCargo[], defaultCm: number, config: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
-  return {
-    createdAt: created,
-    settings: { clearanceCm: defaultCm, clearanceConfig: { defaultCm, lines: config }, cargoSignature: cargoSignature(lines), ...extra },
-  }
+function planFor(lines: StalenessCargo[], extra: Record<string, unknown> = {}) {
+  return { createdAt: created, settings: { layoutSource: "AUTO", cargoSignature: cargoSignature(lines), ...extra } }
 }
 
 describe("cargoSignature", () => {
@@ -67,65 +64,69 @@ describe("cargoSignature", () => {
     expect(cargoSignature([...cargo, line("c")])).not.toBe(base)
   })
 
-  it("does not change when only the clearance, the name or the edit time changes", () => {
+  it("does not change when only the edit time changes", () => {
+    expect(cargoSignature([line("a", { updatedAt: new Date() }), cargo[1]!])).toBe(cargoSignature(cargo))
+  })
+
+  it("never looked at a retired clearance setting, so signatures saved by earlier versions still match", () => {
     const base = cargoSignature(cargo)
-    expect(cargoSignature([line("a", { customFields: { clearanceCm: 9 } }), cargo[1]!])).not.toBe(cargoSignature([line("a", { customFields: { allowedRotations: "LWH" } }), cargo[1]!]))
     expect(cargoSignature([line("a", { customFields: { clearanceCm: 9 } }), cargo[1]!])).toBe(base)
     expect(cargoSignature([line("a", { customFields: { clearanceSides: sides } }), cargo[1]!])).toBe(base)
-    expect(cargoSignature([line("a", { updatedAt: new Date() }), cargo[1]!])).toBe(base)
+    // The same line with a setting and with rotations: only the rotations count.
+    expect(cargoSignature([line("b", { customFields: { allowedRotations: "LWH,WLH", clearanceCm: 4 } }), cargo[0]!])).toBe(cargoSignature([cargo[1]!, cargo[0]!]))
+  })
+
+  it("is a fixed fingerprint: a signature stored before clearance was removed is the one computed today", () => {
+    // The signature function was not touched by the removal (its body is identical to the checkpoint's), so a value stored in a plan before it stays the value computed now. Changing this value would mark every saved plan out of date.
+    expect(cargoSignature(cargo)).toBe("f8c47b9cbe731f24b566c95c005cc4c9000219c9")
   })
 })
 
 describe("planStaleness: one verdict for every screen", () => {
   it("is not stale when nothing changed", () => {
-    const plan = planFor(cargo, 5)
-    expect(planStaleness(plan, cargo, 5)).toBeNull()
-    expect(isPlanStale(plan, cargo, 5)).toBe(false)
+    const plan = planFor(cargo)
+    expect(planStaleness(plan, cargo)).toBeNull()
+    expect(isPlanStale(plan, cargo)).toBe(false)
   })
 
-  it("is stale for cargo when a packing fact changed, even with matching clearance", () => {
-    const plan = planFor(cargo, 5)
-    expect(planStaleness(plan, [line("a", { quantity: 9 }), cargo[1]!], 5)).toBe("cargo")
-    expect(planStaleness(plan, [cargo[0]!], 5)).toBe("cargo")
+  it("is stale for cargo when a packing fact changed", () => {
+    const plan = planFor(cargo)
+    expect(planStaleness(plan, [line("a", { quantity: 9 }), cargo[1]!])).toBe("cargo")
+    expect(planStaleness(plan, [cargo[0]!])).toBe("cargo")
+    expect(planStaleness(plan, [...cargo, line("c")])).toBe("cargo")
+    expect(planStaleness(plan, [line("a", { lengthCm: 101 }), cargo[1]!])).toBe("cargo")
+    expect(planStaleness(plan, [line("a", { orientation: "FIXED" }), cargo[1]!])).toBe("cargo")
   })
 
-  it("is stale for clearance when the default or a line's own setting differs from the recorded one", () => {
-    const plan = planFor(cargo, 5)
-    expect(planStaleness(plan, cargo, 8)).toBe("clearance")
-    expect(planStaleness(plan, [line("a", { customFields: { clearanceCm: 3 } }), cargo[1]!], 5)).toBe("clearance")
-    expect(planStaleness(plan, [line("a", { customFields: { clearanceSides: sides } }), cargo[1]!], 5)).toBe("clearance")
+  it("is not stale merely because the clearance feature was removed", () => {
+    // A plan an earlier version saved, with a project default, a configuration and per-line settings recorded.
+    const saved = planFor(cargo, { clearanceCm: 8, clearanceConfig: { defaultCm: 8, lines: { a: 3, b: { front: 5, rear: 0, left: 0, right: 0 } } } })
+    expect(planStaleness(saved, cargo)).toBeNull()
+    // The lines still carry their dormant settings; they are ignored.
+    const withSettings = [line("a", { customFields: { clearanceCm: 3 } }), line("b", { customFields: { allowedRotations: "LWH,WLH", clearanceSides: sides } })]
+    expect(planStaleness(saved, withSettings)).toBeNull()
+    // And a change to a setting alone, in either direction, is not a change to the plan.
+    expect(planStaleness(saved, [line("a", { customFields: { clearanceCm: 40 } }), cargo[1]!])).toBeNull()
   })
 
-  it("tells an explicit zero from inheriting", () => {
-    const plan = planFor(cargo, 5)
-    expect(planStaleness(plan, [line("a", { customFields: { clearanceCm: 0 } }), cargo[1]!], 5)).toBe("clearance")
-    const zero = planFor([line("a"), cargo[1]!], 5, { a: 0 })
-    expect(planStaleness(zero, [line("a", { customFields: { clearanceCm: 0 } }), cargo[1]!], 5)).toBeNull()
-    expect(planStaleness(zero, cargo, 5)).toBe("clearance")
+  it("still notices a real cargo change on a plan that carries old clearance data", () => {
+    const saved = planFor(cargo, { clearanceCm: 8, clearanceConfig: { defaultCm: 8, lines: {} } })
+    expect(planStaleness(saved, [line("a", { quantity: 9 }), cargo[1]!])).toBe("cargo")
   })
 
-  it("keeps cargo and clearance apart: a clearance edit is not a cargo edit and the other way round", () => {
-    const edited = [line("a", { customFields: { clearanceCm: 3 }, updatedAt: new Date("2026-11-12T00:00:00Z") }), cargo[1]!]
-    expect(planStaleness(planFor(cargo, 5), edited, 5)).toBe("clearance")
-    // The plan is then re-checked under the new clearance: its recorded configuration is updated, its cargo signature is not.
-    const rechecked = { ...planFor(cargo, 5, { a: 3 }) }
-    expect(planStaleness(rechecked, edited, 5)).toBeNull()
+  it("does not care about the layout source, so a hand-arranged plan is judged by its cargo like any other", () => {
+    const manual = planFor(cargo, { layoutSource: "MANUAL" })
+    expect(planStaleness(manual, cargo)).toBeNull()
+    expect(planStaleness(manual, [line("a", { quantity: 9 }), cargo[1]!])).toBe("cargo")
   })
 
-  it("does not let a clearance re-check hide an unrelated cargo edit", () => {
-    const edited = [line("a", { customFields: { clearanceCm: 3 }, quantity: 9 }), cargo[1]!]
-    const rechecked = planFor(cargo, 5, { a: 3 })
-    expect(planStaleness(rechecked, edited, 5)).toBe("cargo")
-  })
-
-  it("falls back to edit times for plans saved before signatures, and to the default alone before configurations", () => {
+  it("falls back to edit times for plans saved before signatures", () => {
     const old = { createdAt: created, settings: { clearanceCm: 5 } }
-    expect(planStaleness(old, cargo, 5)).toBeNull()
-    expect(planStaleness(old, [line("a", { updatedAt: new Date("2026-11-11T00:00:00Z") }), cargo[1]!], 5)).toBe("cargo")
-    expect(planStaleness(old, cargo, 6)).toBe("clearance")
-    expect(planStaleness({ createdAt: created, settings: null }, cargo, 0)).toBeNull()
+    expect(planStaleness(old, cargo)).toBeNull()
+    expect(planStaleness(old, [line("a", { updatedAt: new Date("2026-11-11T00:00:00Z") }), cargo[1]!])).toBe("cargo")
+    expect(planStaleness({ createdAt: created, settings: null }, cargo)).toBeNull()
     const synced = { createdAt: created, settings: { clearanceCm: 5, syncedAt: "2026-11-12T00:00:00Z" } }
-    expect(planStaleness(synced, [line("a", { updatedAt: new Date("2026-11-11T00:00:00Z") }), cargo[1]!], 5)).toBeNull()
+    expect(planStaleness(synced, [line("a", { updatedAt: new Date("2026-11-11T00:00:00Z") }), cargo[1]!])).toBeNull()
   })
 })
 
@@ -152,7 +153,7 @@ describe("one status for the stepper, both plan pages and the project list", () 
     }
   })
 
-  it("walks through a successful Save & Recalculate: ready, calculating, ready", () => {
+  it("walks through a successful recalculation: out of date, calculating, ready", () => {
     const steps = [
       { calculating: false, stale: true, failed: false },
       { calculating: true, stale: true, failed: false },
@@ -172,24 +173,25 @@ describe("one status for the stepper, both plan pages and the project list", () 
     expect(steps).toEqual(["ready", "calculating", "failed", "calculating", "ready"])
   })
 
-  it("keeps the previous status when a proposed clearance change is rejected, because nothing was saved", () => {
-    // Rejected: the project and the plan are exactly as before, so the verdict is the same one function of the same inputs.
-    const plan = planFor(cargo, 5)
-    const before = derivePlanStatus({ hasPlan: true, calculating: false, stale: isPlanStale(plan, cargo, 5), failed: false })
-    const afterRejection = derivePlanStatus({ hasPlan: true, calculating: false, stale: isPlanStale(plan, cargo, 5), failed: false })
-    expect(afterRejection).toEqual(before)
+  it("an out-of-date plan stays out of date until it is recalculated", () => {
+    const plan = planFor(cargo)
+    const edited = [line("a", { quantity: 9 }), cargo[1]!]
+    const before = derivePlanStatus({ hasPlan: true, calculating: false, stale: isPlanStale(plan, cargo), failed: false })
     expect(before.kind).toBe("ready")
-    // And an out-of-date plan stays out of date.
-    const stalePlan = derivePlanStatus({ hasPlan: true, calculating: false, stale: isPlanStale(plan, [line("a", { quantity: 9 }), cargo[1]!], 5), failed: false })
-    expect(stalePlan.kind).toBe("out-of-date")
+    const after = derivePlanStatus({ hasPlan: true, calculating: false, stale: isPlanStale(plan, edited), failed: false })
+    expect(after.kind).toBe("out-of-date")
+    // Recalculating records the new cargo, and the plan is ready again.
+    const recalculated = planFor(edited)
+    expect(derivePlanStatus({ hasPlan: true, calculating: false, stale: isPlanStale(recalculated, edited), failed: false }).kind).toBe("ready")
   })
 
   it("the project list uses the same verdict as the project page, not a cargo edit time alone", () => {
     const base = { cargoCount: 2, equipmentCount: 1, lastCargoChange: new Date("2026-11-09T00:00:00Z") }
-    const plan = planFor(cargo, 5)
-    // A clearance change makes the plan out of date although no cargo edit time is newer than it.
-    expect(projectStatus({ ...base, plan: { createdAt: created, unloadedCount: 0, stale: isPlanStale(plan, cargo, 9) } }).kind).toBe("stale")
-    expect(projectStatus({ ...base, plan: { createdAt: created, unloadedCount: 0, stale: isPlanStale(plan, cargo, 5) } }).kind).toBe("planned")
+    const plan = planFor(cargo)
+    const edited = [line("a", { quantity: 9 }), cargo[1]!]
+    // A change to the cargo makes the plan out of date although no cargo edit time is newer than it.
+    expect(projectStatus({ ...base, plan: { createdAt: created, unloadedCount: 0, stale: isPlanStale(plan, edited) } }).kind).toBe("stale")
+    expect(projectStatus({ ...base, plan: { createdAt: created, unloadedCount: 0, stale: isPlanStale(plan, cargo) } }).kind).toBe("planned")
     // A cargo edit time newer than the plan does not make it stale when the project's own verdict says it still matches.
     expect(projectStatus({ ...base, lastCargoChange: new Date("2026-11-11T00:00:00Z"), plan: { createdAt: created, unloadedCount: 0, stale: false } }).kind).toBe("planned")
     // Without a verdict the old rule still applies.

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react"
 import { cargoItemInputSchema, type AxisRotation, type CargoItemInput, type CargoShape } from "@compass/domain"
-import { AlertCircle, Check, Copy, Download, FileDown, FileUp, Loader2, Plus, Settings2, Trash2 } from "lucide-react"
+import { AlertCircle, Check, Copy, Download, FileDown, FileUp, Loader2, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import {
   addCargoItem,
@@ -19,7 +19,6 @@ import {
   presetFor,
 } from "@/components/allowed-orientations-dialog"
 import { openCargoImport } from "@/components/cargo-import-wizard"
-import { ClearanceEditorDialog } from "@/components/clearance-editor"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,8 +34,6 @@ import {
   type LengthUnit,
 } from "@/lib/cargo-units"
 import { useLengthUnit, writeLengthUnit } from "@/lib/length-unit-pref"
-import { lineSetting, settingToCargoFields } from "@/lib/clearance"
-import { describeSetting, describeSides } from "@compass/physics"
 import { cargoTotals, checkCargoLine, isPlannable, type CargoField } from "@/lib/cargo-validation"
 import { cargoColor, formatKg, formatM3 } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -44,6 +41,8 @@ import { cn } from "@/lib/utils"
 export type CargoLine = CargoItemInput & {
   id: string
   updatedAt: string
+  /** What an import could not settle for this line (a size with no unit, a weight that could mean two things). Shown until the line is complete. */
+  importNotes?: string[]
 }
 
 const SHAPES: { value: CargoShape; label: string }[] = [
@@ -90,14 +89,11 @@ export function CargoGrid({
   projectName,
   lines,
   canEdit,
-  projectClearance = 0,
 }: {
   projectId: string
   projectName: string
   lines: CargoLine[]
   canEdit: boolean
-  /** The project default handling clearance, shown for lines that inherit it. */
-  projectClearance?: number
 }) {
   const [exporting, setExporting] = useState(false)
   const [selected, setSelected] = useState<string[]>([])
@@ -117,7 +113,7 @@ export function CargoGrid({
   const totals = cargoTotals(lines)
   const incomplete = lines.filter((line) => !isPlannable(line)).length
   const advancedInUse = lines.filter(
-    (line) => line.bottomOnly || line.priority !== 0 || line.destinationStop !== 1 || line.consignmentId,
+    (line) => line.bottomOnly || line.priority !== 0 || line.destinationStop !== 1,
   ).length
 
   // After "Add line", put the cursor in the new row's name cell.
@@ -449,10 +445,6 @@ export function CargoGrid({
                       <Th title="Tick if the item must stand on the floor">Floor only</Th>
                       <Th title="Higher priority loads first">Priority</Th>
                       <Th title="Delivery stop number; stop 1 is unloaded first">Stop</Th>
-                      <Th>Consignment</Th>
-                      <Th title="Free space reserved around this item for forks or hands: the project default, one value for every side, or a value for each side. Do not add packaging that is already in the sizes.">
-                        Clearance
-                      </Th>
                     </>
                   ) : null}
                   <th className="sticky right-0 z-[1] border-l bg-muted px-1 py-2">
@@ -475,7 +467,6 @@ export function CargoGrid({
                       setSelected((current) => (on ? [...current, line.id] : current.filter((id) => id !== line.id)))
                     }
                     onKeyNav={moveFocus}
-                    projectClearance={projectClearance}
                     trackSave={trackSave}
                     onDelete={() => deleteLines([line.id])}
                   />
@@ -538,7 +529,6 @@ function CargoRow({
   selected,
   onSelected,
   onKeyNav,
-  projectClearance,
   trackSave,
   onDelete,
 }: {
@@ -551,7 +541,6 @@ function CargoRow({
   selected: boolean
   onSelected: (on: boolean) => void
   onKeyNav: (event: KeyboardEvent<HTMLElement>, rowIndex: number) => void
-  projectClearance: number
   trackSave: <T extends { ok: boolean; error?: string }>(promise: Promise<T>) => Promise<T>
   onDelete: () => Promise<boolean>
 }) {
@@ -647,6 +636,11 @@ function CargoRow({
             style={{ background: cargoColor(draft.name, draft.color) }}
             title="Colour used for this item in the 3D view"
           />
+          {line.importNotes && line.importNotes.length > 0 && !isPlannable(draft) ? (
+            <span title={`From the import: ${line.importNotes.join(" ")}`} aria-label={`Import notes: ${line.importNotes.join(" ")}`}>
+              <AlertCircle className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+            </span>
+          ) : null}
           <Input
             aria-label="Name"
             placeholder="Item name"
@@ -795,28 +789,6 @@ function CargoRow({
             onBlur={() => commit(draft)}
             inputProps={cellProps("destinationStop")}
           />
-          <td className="px-1 py-1">
-            <Input
-              aria-label="Consignment"
-              placeholder="Optional"
-              value={draft.consignmentId ?? ""}
-              disabled={!canEdit}
-              onChange={(event) => setDraft({ ...draft, consignmentId: event.target.value || null })}
-              onBlur={() => commit(draft)}
-              className="h-8 min-w-0 px-2"
-              {...cellProps("consignment")}
-            />
-          </td>
-          <ClearanceCell
-            line={draft}
-            projectDefault={projectClearance}
-            disabled={!canEdit}
-            onApply={(setting) => {
-              const next = { ...draft, ...settingToCargoFields(setting) }
-              setDraft(next)
-              commit(next)
-            }}
-          />
         </>
       ) : null}
       <td className="sticky right-0 z-[1] border-l bg-card px-1 py-1">
@@ -955,63 +927,6 @@ function LengthCell({
   )
 }
 
-/**
- * A compact summary of a line's handling clearance ("Default · 5 cm", "Uniform · 10 cm", "Custom · 0 cm",
- * "Directional") that opens the clearance editor. One cell instead of four columns.
- */
-function ClearanceCell({
-  line,
-  projectDefault,
-  disabled,
-  onApply,
-}: {
-  line: CargoLine
-  projectDefault: number
-  disabled: boolean
-  onApply: (setting: ReturnType<typeof lineSetting>) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const setting = lineSetting(line)
-  const label = describeSetting(setting, projectDefault)
-  const detail = typeof setting === "object" && setting ? describeSides(setting) : undefined
-  return (
-    <td className="px-1 py-1">
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        disabled={disabled}
-        aria-label={`Clearance for ${line.name || "this line"}: ${label}. Edit`}
-        title={detail ?? "Edit handling clearance for this line"}
-        className={cn(
-          "flex h-8 w-full min-w-0 items-center justify-between gap-1.5 rounded-md border bg-background px-2 text-left text-xs",
-          "hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-70 disabled:hover:bg-background",
-          setting !== null && "border-primary/40",
-        )}
-      >
-        <span className="truncate tabular-nums">{label}</span>
-        <Settings2 className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-      </button>
-      <ClearanceEditorDialog
-        open={open}
-        onOpenChange={setOpen}
-        line={{
-          id: line.id,
-          sku: line.sku,
-          name: line.name,
-          lengthCm: line.lengthCm,
-          widthCm: line.widthCm,
-          heightCm: line.heightCm,
-          weightKg: line.weightKg,
-          quantity: line.quantity,
-        }}
-        setting={setting}
-        projectDefault={projectDefault}
-        onApply={onApply}
-      />
-    </td>
-  )
-}
-
 function NumberCell({
   label,
   value,
@@ -1119,7 +1034,5 @@ function toCargoInput(line: CargoItemInput): CargoItemInput {
     consignmentId: line.consignmentId,
     segregationClass: line.segregationClass,
     color: line.color,
-    clearanceCm: line.clearanceCm ?? null,
-    clearanceSides: line.clearanceSides ?? null,
   }
 }

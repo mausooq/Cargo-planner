@@ -12,12 +12,13 @@ import {
   roleSchema,
 } from "@compass/domain"
 import type { CargoLine } from "@/components/cargo-grid"
+import { recordOf } from "@/lib/json"
 import type { EquipmentChoice } from "@/components/equipment-setup"
 import { PlannerApp } from "@/components/planner-app"
 import { importMappingSchema } from "@/lib/cargo-import"
 import { listEquipmentForOrg } from "@/lib/equipment-catalog"
 import { planFromDb } from "@/lib/plan-from-db"
-import { cargoSetting, projectClearance, projectMinSupportPct, settingToCargoFields } from "@/lib/clearance"
+import { projectMinSupportPct } from "@/lib/support-policy"
 import { isPlanStale } from "@/lib/plan-staleness"
 import { prisma } from "@/lib/prisma"
 import { requireUser } from "@/lib/session"
@@ -25,6 +26,12 @@ import { requireUser } from "@/lib/session"
 export const dynamic = "force-dynamic"
 
 export const metadata = { title: "Load plan" }
+
+/** What an import could not settle for a draft line, stored with it. Only text is read back. */
+function importNotesOf(value: unknown): string[] {
+  const raw = recordOf(value).importNotes
+  return Array.isArray(raw) ? raw.filter((entry): entry is string => typeof entry === "string").slice(0, 8) : []
+}
 
 function storedRotations(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
@@ -75,7 +82,6 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       ? orientationSchema.parse(item.orientation)
       : "ROTATE_90",
     allowedRotations: parseAllowedRotations(storedRotations(item.customFields)),
-    ...settingToCargoFields(cargoSetting(item.customFields)),
     stackable: item.stackable,
     bottomOnly: item.bottomOnly,
     maxStackLoadKg: item.maxStackLoadKg,
@@ -85,6 +91,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     consignmentId: item.consignmentId,
     segregationClass: item.segregationClass,
     color: item.color,
+    importNotes: importNotesOf(item.customFields),
   }))
 
   const library = await listEquipmentForOrg(user.orgId)
@@ -111,12 +118,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   })
 
   const latest = project.plans[0]
-  const clearanceCm = projectClearance(project.rules)
-  // Pieces are judged against the clearance configuration in force now; the plan itself records the
-  // one it was calculated or last checked under.
-  const plan = latest ? planFromDb(latest, { clearanceCm }) : null
+  const plan = latest ? planFromDb(latest) : null
   const minSupportPct = projectMinSupportPct(project.rules)
-  const planStale = latest ? isPlanStale(latest, project.cargoItems, clearanceCm) : false
+  const planStale = latest ? isPlanStale(latest, project.cargoItems) : false
 
   return (
     <main id="main">
@@ -131,7 +135,6 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             objective: objectiveSchema.parse(project.objective),
             etd: project.etd ? project.etd.toISOString().slice(0, 10) : null,
             notes: project.notes,
-            clearanceCm,
             minSupportPct,
           }}
           cargo={lines}

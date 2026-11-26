@@ -14,7 +14,6 @@ import { WebGLGuard } from "@/components/webgl-guard"
 import { PipeMesh, pipeInnerRadius } from "@/components/pipe-mesh"
 import { AirContourMesh, AirPalletMesh } from "@/components/equipment-hull"
 import { useLengthUnit } from "@/lib/length-unit-pref"
-import { ClearanceEnvelope } from "@/components/clearance-envelope"
 import { applyDropPosition, itemToPiece, pointerInFootprint, unitToWorld } from "@/lib/cargo-physics"
 import { snapToNeighbours, snapToStack } from "@/lib/cargo-snap"
 import { fallDurationMs, fallHeight, prefersReducedMotion } from "@/lib/fall-motion"
@@ -61,8 +60,6 @@ export function LoadViewer({
   className,
   compact = false,
   playground = false,
-  showClearance = false,
-  violationIds = [],
   selectedId = null,
   onSelect,
   onItemsChange,
@@ -77,10 +74,6 @@ export function LoadViewer({
   className?: string
   compact?: boolean
   playground?: boolean
-  /** Draw each piece's handling allowance as a translucent frame around it. */
-  showClearance?: boolean
-  /** Pieces whose reserved handling space is broken: drawn in red whether or not the toggle is on. */
-  violationIds?: string[]
   selectedId?: string | null
   onSelect?: (id: string | null) => void
   onItemsChange?: (items: PlanItemView[]) => void
@@ -229,13 +222,6 @@ export function LoadViewer({
               simple={compact}
             />
           ))}
-          {unit.items.map((entry) => {
-            const broken = violationIds.includes(entry.id)
-            const picked = selectedId === entry.id
-            // All of them with the toggle; otherwise only the selected piece and any that break the rule.
-            if (!showClearance && !broken && !picked) return null
-            return <ClearanceEnvelope key={`envelope-${entry.id}`} item={entry} violation={broken} emphasis={picked} />
-          })}
           {preview ? (
             <GhostMesh item={preview.ghost} valid={preview.valid} validColor={colors.valid} invalidColor={colors.invalid} />
           ) : flashItem ? (

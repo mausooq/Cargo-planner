@@ -11,7 +11,7 @@ import type {
   SolverSettings,
   UnloadedItem,
 } from "./types"
-import { clearanceFor, fitsAnywhereEmpty, ownSidesFor, placementOptions, Unit, type Instance, type Rejection } from "./unit"
+import { fitsAnywhereEmpty, Unit, type Instance, type Rejection } from "./unit"
 
 export const DEFAULT_SETTINGS: SolverSettings = {
   seed: 1,
@@ -22,7 +22,6 @@ export const DEFAULT_SETTINGS: SolverSettings = {
   minSupportRatio: DEFAULT_MIN_SUPPORT_PCT / 100,
   keepConsignmentsTogether: true,
   segregation: [],
-  clearanceCm: 0,
 }
 
 type Candidate = {
@@ -44,7 +43,7 @@ export function solve(
   const equipment = input.equipment.filter((type) => type.maxCount === null || type.maxCount > 0)
   if (equipment.length === 0) warnings.push("No equipment was selected.")
 
-  const { feasible, unloaded: infeasible } = splitInfeasible(input.cargo, equipment, settings)
+  const { feasible, unloaded: infeasible } = splitInfeasible(input.cargo, equipment)
   const rng = createRng(settings.seed)
   const orderings = buildOrderings(settings)
 
@@ -284,27 +283,16 @@ function perturb(ordered: Instance[], rng: Rng): Instance[] {
   return copy
 }
 
-function splitInfeasible(cargo: SolverCargo[], equipment: SolverEquipment[], settings: SolverSettings): { feasible: Instance[]; unloaded: UnloadedItem[] } {
+function splitInfeasible(cargo: SolverCargo[], equipment: SolverEquipment[]): { feasible: Instance[]; unloaded: UnloadedItem[] } {
   const feasible: Instance[] = []
   const unloaded: UnloadedItem[] = []
   for (const item of cargo) {
-    const own = ownSidesFor(item, settings)
-    const clearance = clearanceFor(item, settings)
-    const bare = orientationsFor(item)
-    const dims = placementOptions(item, own)
-    const fitsSomewhere = equipment.some((type) => fitsAnywhereEmpty(type, dims, own))
-    const fitsBare = clearance > 0 && equipment.some((type) => fitsAnywhereEmpty(type, bare, null))
+    const dims = orientationsFor(item)
+    const fitsSomewhere = equipment.some((type) => fitsAnywhereEmpty(type, dims))
     const lightEnough = equipment.some((type) => item.weightKg <= type.maxPayloadKg)
     for (let index = 0; index < item.quantity; index += 1) {
       if (equipment.length === 0) {
         unloaded.push({ cargoId: item.id, instanceIndex: index, reason: "EQUIPMENT_RESTRICTION", detail: "No equipment selected." })
-      } else if (!fitsSomewhere && fitsBare) {
-        unloaded.push({
-          cargoId: item.id,
-          instanceIndex: index,
-          reason: "CLEARANCE",
-          detail: `${item.name} fits a unit, but not with its handling clearance (up to ${clearance} cm on a side).`,
-        })
       } else if (!fitsSomewhere) {
         unloaded.push({ cargoId: item.id, instanceIndex: index, reason: "OUT_OF_GAUGE", detail: `${item.name} is larger than every selected unit.` })
       } else if (!lightEnough) {

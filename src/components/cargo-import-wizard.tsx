@@ -32,7 +32,7 @@ import {
   type WeightUnit,
 } from "@/lib/cargo-import"
 import { LENGTH_UNIT_LABEL } from "@/lib/cargo-units"
-import { evaluateLine, type ExistingCargoSummary, type ReviewLine } from "@/lib/import-review"
+import { evaluateLine, toDraft, type ExistingCargoSummary, type ReviewLine } from "@/lib/import-review"
 import type { SheetInfo, SheetTable, WorkbookInfo } from "@/lib/import-sheet"
 import { tableToReviewLines } from "@/lib/import-table"
 import { shrinkImage } from "@/lib/shrink-image"
@@ -53,6 +53,7 @@ const FIELD_LABEL: Record<CargoImportField, string> = {
   dimensions: "Size in one cell (L x W x H)",
   weight: "Weight per piece",
   lineWeight: "Line total weight",
+  netWeight: "Net weight (reference only)",
   quantity: "Quantity",
   shape: "Shape",
   orientation: "Orientation",
@@ -132,6 +133,7 @@ export function CargoImportWizard({
   const requestRef = useRef(0)
   const lockRef = useRef(false)
   const urlsRef = useRef<string[]>([])
+  const reviewRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const urls = urlsRef
@@ -341,6 +343,8 @@ export function CargoImportWizard({
   function showReview(document: ReviewDocument, source: SourceView, back: Stage) {
     setReview({ document, source, back })
     setStage("review")
+    // The review is on the page, under the Cargo grid: bring it into view.
+    window.setTimeout(() => reviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50)
   }
 
   async function readDocument(item: Picked) {
@@ -474,24 +478,39 @@ export function CargoImportWizard({
 
   async function importLines(lines: ReviewLine[], choice: ImportChoice) {
     if (importing || lockRef.current) return
-    const rows = lines.map((line) => evaluateLine(line).input)
+    const evaluations = lines.map(evaluateLine)
+    const rows = lines.map((line, index) => {
+      const evaluation = evaluations[index]!
+      if (evaluation.input) return evaluation.input
+      const draft = toDraft(line, evaluation)
+      return draft ? { ...draft.input, importNotes: draft.notes } : null
+    })
+    const drafts = evaluations.filter((evaluation) => evaluation.input === null).length
     if (rows.length === 0 || rows.some((row) => row === null)) {
-      toast.error("Some selected lines are not complete. Fix or exclude them first.")
+      toast.error("Some selected lines need a quantity and a description or mark before they can be added, even as drafts.")
+      return
+    }
+    if (choice.suggest && drafts > 0) {
+      toast.error("Equipment suggestions need every selected line to be complete. Fix the lines, or use Add lines only.")
       return
     }
     lockRef.current = true
     setImporting(true)
     try {
-      const result = await importReviewedCargo(projectId, rows as NonNullable<(typeof rows)[number]>[], { mode: choice.mode, confirmReplace: choice.confirmReplace })
+      const result = await importReviewedCargo(projectId, rows as NonNullable<(typeof rows)[number]>[], { mode: choice.mode, confirmReplace: choice.confirmReplace, allowIncomplete: drafts > 0 })
       if (!result.ok) {
         toast.error(result.error)
         return
       }
-      toast.success(
+      const summary =
         result.removed > 0
           ? `Replaced ${result.removed} line${result.removed === 1 ? "" : "s"} with ${result.count} new one${result.count === 1 ? "" : "s"}. Calculate the load plan again.`
-          : `Added ${result.count} cargo line${result.count === 1 ? "" : "s"}.`,
-      )
+          : `Added ${result.count} cargo line${result.count === 1 ? "" : "s"}.`
+      if (result.drafts > 0) {
+        toast.warning(`${summary} ${result.drafts} ${result.drafts === 1 ? "is a draft" : "are drafts"}: finish ${result.drafts === 1 ? "it" : "them"} in the table. Incomplete lines are left out of equipment suggestions and load plans.`)
+      } else {
+        toast.success(summary)
+      }
       close()
       onImported?.({ suggest: choice.suggest })
     } catch {
@@ -504,7 +523,7 @@ export function CargoImportWizard({
 
   const aiReady = capabilities?.aiConfigured === true
   const aiName = capabilities?.aiLabel ?? "Claude (Anthropic)"
-  const wide = stage !== "choose"
+  const wide = stage === "mapping"
 
   return (
     <>
@@ -528,9 +547,9 @@ export function CargoImportWizard({
         </div>
       ) : null}
 
-      <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
+      <Dialog open={open && stage !== "review"} onOpenChange={(next) => (next ? setOpen(true) : close())}>
         <DialogContent
-          className={cn("flex max-h-[92vh] flex-col overflow-hidden", wide ? "h-[92vh] max-w-[min(80rem,96vw)]" : "max-w-2xl")}
+          className={cn("flex max-h-[92vh] flex-col overflow-hidden", wide ? "h-[92vh] max-w-[min(64rem,96vw)]" : "max-w-2xl")}
           onInteractOutside={(event) => {
             // A reviewed import is work in progress: only Cancel or the close button leaves it.
             if (stage !== "choose" || busy) event.preventDefault()
@@ -669,22 +688,24 @@ export function CargoImportWizard({
             </div>
           ) : null}
 
-          {stage === "review" && review ? (
-            <CargoImportReview
-              document={review.document}
-              source={review.source}
-              existing={existing}
-              importing={importing}
-              onBack={() => {
-                setStage(review.back)
-                setReview(null)
-              }}
-              onCancel={close}
-              onImport={(lines, choice) => void importLines(lines, choice)}
-            />
-          ) : null}
         </DialogContent>
       </Dialog>
+      {open && stage === "review" && review ? (
+        <div ref={reviewRef} className="scroll-mt-20">
+          <CargoImportReview
+            document={review.document}
+            source={review.source}
+            existing={existing}
+            importing={importing}
+            onBack={() => {
+              setStage(review.back)
+              setReview(null)
+            }}
+            onCancel={close}
+            onImport={(lines, choice) => void importLines(lines, choice)}
+          />
+        </div>
+      ) : null}
     </>
   )
 }

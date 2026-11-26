@@ -10,7 +10,6 @@ import {
 } from "@compass/domain"
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
-import { MAX_CLEARANCE_CM, normaliseClearance } from "@/lib/clearance"
 import { editorOrError } from "@/lib/editor"
 import { prisma } from "@/lib/prisma"
 
@@ -76,30 +75,6 @@ export async function updateProjectMeta(
     },
   })
   revalidatePath("/dashboard")
-  revalidatePath(`/projects/${project.id}`)
-  return { ok: true as const }
-}
-
-/**
- * Sets the project's default handling clearance (cm per side). Stored inside the existing
- * `Project.rules` JSON, so no migration is needed; a missing value means none. It takes effect the
- * next time the plan is calculated, and until then the saved plan is flagged as out of date.
- */
-export async function updateProjectClearance(projectId: string, clearanceCm: number) {
-  const access = await editorOrError()
-  if (!access.ok) return { ok: false as const, error: access.error }
-  if (typeof clearanceCm !== "number" || !Number.isFinite(clearanceCm) || clearanceCm < 0 || clearanceCm > MAX_CLEARANCE_CM) {
-    return { ok: false as const, error: `Enter an allowance from 0 to ${MAX_CLEARANCE_CM} cm per side.` }
-  }
-
-  const project = await prisma.project.findFirst({ where: { id: projectId, orgId: access.user.orgId } })
-  if (!project) return { ok: false as const, error: "That project is not in this organization." }
-
-  const rules = project.rules && typeof project.rules === "object" && !Array.isArray(project.rules) ? project.rules : {}
-  await prisma.project.update({
-    where: { id: project.id },
-    data: { rules: { ...rules, clearanceCm: normaliseClearance(clearanceCm) } as Prisma.InputJsonObject },
-  })
   revalidatePath(`/projects/${project.id}`)
   return { ok: true as const }
 }

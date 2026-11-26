@@ -205,3 +205,58 @@ export function readSize(text: string, unit: LengthUnit | null): SizeRead {
   const parsed = parseLength(prepared, unit ?? "cm")
   return parsed.ok ? { ok: true, cm: parsed.cm, needsUnit: false } : { ok: false, reason: parsed.reason }
 }
+
+// ---- net and gross written together ------------------------------------------------------------------
+
+export type NetGross = { gross: string; net: string }
+
+const NET_WORD = String.raw`(?:net|n\.?\s?w\.?|nett|netto|neto|poids\s+net|净重)`
+const GROSS_WORD = String.raw`(?:gross|g\.?\s?w\.?|brutto|bruto|poids\s+brut|毛重)`
+const AMOUNT = String.raw`\d[\d.,'’]*(?:\s\d{3}(?!\d))*`
+const UNIT_WORD = String.raw`(?:kgs?|kilograms?|kilogrammes?|g|grams?|t|tonnes?|lbs?|pounds?)(?![A-Za-z]|\.[A-Za-z])`
+
+/**
+ * A weight cell that holds both weights, such as "2210 net / 2360 gross", "NW 2210 kg, GW 2360 kg" or
+ * "2210 kg (net) 2360 kg (gross)". Returns each as its own number with its unit, or null when the text
+ * is not clearly one net and one gross (one number, or two numbers with no labels, is left alone).
+ */
+export function splitNetGross(text: string): NetGross | null {
+  const raw = text.trim()
+  if (!raw) return null
+  const found: { kind: "net" | "gross"; value: string }[] = []
+  const take = (kind: "net" | "gross", amount: string, unit: string | undefined) => {
+    if (!found.some((entry) => entry.kind === kind)) found.push({ kind, value: `${amount.trim()}${unit ? ` ${unit.trim()}` : ""}` })
+  }
+  const after = new RegExp(String.raw`(${AMOUNT})\s*(${UNIT_WORD})?\s*[(\[]?\s*(${NET_WORD}|${GROSS_WORD})(?:\b|(?<=\.))`, "gi")
+  const before = new RegExp(String.raw`(${NET_WORD}|${GROSS_WORD})(?:\b|(?<=\.))\s*[:=-]?\s*(${AMOUNT})\s*(${UNIT_WORD})?`, "gi")
+  const isNet = (label: string) => new RegExp(`^${NET_WORD}$`, "i").test(label.trim())
+  const readAfter = () => {
+    for (const match of raw.matchAll(after)) take(isNet(match[3]!) ? "net" : "gross", match[1]!, match[2])
+  }
+  const readBefore = () => {
+    for (const match of raw.matchAll(before)) take(isNet(match[1]!) ? "net" : "gross", match[2]!, match[3])
+  }
+  // "NW 2210 GW 2360": the label comes first. "2210 net 2360 gross": the label comes after. The start of the text tells which.
+  const labelFirst = new RegExp(String.raw`^\s*[(\[]?\s*(?:${NET_WORD}|${GROSS_WORD})(?:\b|(?<=\.))`, "i").test(raw)
+  if (labelFirst) {
+    readBefore()
+    if (found.length < 2) {
+      found.length = 0
+      readAfter()
+    }
+  } else {
+    readAfter()
+    if (found.length < 2) {
+      found.length = 0
+      readBefore()
+    }
+  }
+  const gross = found.find((entry) => entry.kind === "gross")
+  const net = found.find((entry) => entry.kind === "net")
+  if (!gross || !net) return null
+  // A unit written once covers both ("2210 / 2360 kg" style texts already carry it on the last number).
+  const unitOf = (value: string) => /[A-Za-z]+$/.exec(value)?.[0]
+  const shared = unitOf(gross.value) ?? unitOf(net.value)
+  const withUnit = (value: string) => (unitOf(value) || !shared ? value : `${value} ${shared}`)
+  return { gross: withUnit(gross.value), net: withUnit(net.value) }
+}

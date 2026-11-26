@@ -1,6 +1,5 @@
 import { DEFAULT_MIN_SUPPORT_PCT } from "@compass/physics"
 import { rotateItemFlat, tryPlaceItem } from "@/lib/cargo-skin"
-import { itemSides } from "@/lib/clearance"
 import type { PlanItemView, PlanUnitView } from "@/lib/plan-view"
 
 const GRID_CM = 10
@@ -24,25 +23,8 @@ function better(a: PlanItemView, b: PlanItemView): boolean {
 }
 
 function searchSpot(item: PlanItemView, items: PlanItemView[], unit: PlanUnitView, minSupportRatio: number): PlanItemView | null {
-  // Handling clearance: try the spots exactly one allowance away from walls and neighbours, so a
-  // piece with an allowance is offered the tight, valid spot and not only the coarse grid ones.
-  const own = itemSides(item)
-  const xs = candidateStarts(item.lengthCm, unit.lengthCm, [
-    own.x0,
-    unit.lengthCm - own.x1,
-    ...items.flatMap((other) => {
-      const theirs = itemSides(other)
-      return [other.x + other.lengthCm + Math.max(own.x0, theirs.x1), other.x - Math.max(own.x1, theirs.x0)]
-    }),
-  ])
-  const ys = candidateStarts(item.widthCm, unit.widthCm, [
-    own.y0,
-    unit.widthCm - own.y1,
-    ...items.flatMap((other) => {
-      const theirs = itemSides(other)
-      return [other.y + other.widthCm + Math.max(own.y0, theirs.y1), other.y - Math.max(own.y1, theirs.y0)]
-    }),
-  ])
+  const xs = candidateStarts(item.lengthCm, unit.lengthCm, items.flatMap((other) => [other.x, other.x + other.lengthCm]))
+  const ys = candidateStarts(item.widthCm, unit.widthCm, items.flatMap((other) => [other.y, other.y + other.widthCm]))
   let best: PlanItemView | null = null
   for (const x of xs) {
     for (const y of ys) {

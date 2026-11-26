@@ -4,7 +4,6 @@ import { canDeleteProjects, canEditProjects, roleSchema } from "@compass/domain"
 import { ProjectCreateForm } from "@/components/project-create-form"
 import { ProjectFolderList, type ProjectFolder } from "@/components/project-folder-list"
 import { prisma } from "@/lib/prisma"
-import { projectClearance } from "@/lib/clearance"
 import { isPlanStale } from "@/lib/plan-staleness"
 import { projectStatus } from "@/lib/project-status"
 import { requireUser } from "@/lib/session"
@@ -68,7 +67,7 @@ export default async function DashboardPage() {
               createdAt: latest.createdAt,
               unloadedCount: latest._count.unloaded,
               // The same rule as the project page, so the list and the stepper agree.
-              stale: isPlanStale(latest, project.cargoItems, projectClearance(project.rules)),
+              stale: isPlanStale(latest, project.cargoItems),
             }
           : null,
         lastCargoChange,

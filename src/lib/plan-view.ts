@@ -1,7 +1,5 @@
 import type { CargoShape, EquipmentMode, OogClass } from "@compass/domain"
-import { maxSide, normaliseSides, resolveSides, sameSetting, type ClearanceSetting, type SideClearance } from "@compass/physics"
 import type { SolverResult, UnitMetrics } from "@compass/solver"
-import type { ClearanceConfig } from "@/lib/clearance"
 import { cargoColor } from "@/lib/format"
 import type { UldContour } from "@/lib/uld-contour"
 
@@ -25,12 +23,6 @@ export type PlanItemView = {
   stackable?: boolean
   bottomOnly?: boolean
   maxStackLoadKg?: number | null
-  /** Handling clearance per side in cm when it is the same on every side (own setting or project default); the largest side when directional. */
-  clearanceCm?: number
-  /** The piece's own front / rear / left / right clearance, resolved, in the orientation it was entered in. Turns with the piece. */
-  clearance?: SideClearance
-  /** How the cargo line is configured: null inherits the project default, a number is uniform (0 = none), sides are directional. */
-  clearanceSetting?: ClearanceSetting
 }
 
 export type PlanUnitView = {
@@ -50,10 +42,8 @@ export type PlanUnitView = {
   grossKg: number
   volumeM3: number
   volumePct: number
-  /** Same as `floorActualPct`; plans saved before the two floor metrics only have this. */
+  /** Floor utilization: the exact share of the floor covered by the cargo's own footprints. */
   floorPct: number
-  floorActualPct: number
-  floorEffectivePct: number
   weightPct: number
   /** Payload left in kg (negative when over). */
   remainingKg: number
@@ -68,10 +58,6 @@ export type PlanUnitView = {
 }
 
 export type PlanView = {
-  /** Project default handling clearance the plan was calculated with, per side in cm. */
-  clearanceCm: number
-  /** The clearance configuration (default and per-line settings) the plan was calculated or last checked under, when recorded. */
-  clearanceConfig?: ClearanceConfig | null
   /** AUTO: laid out by the packer. MANUAL: the planner has moved cargo by hand and saved. */
   layoutSource?: "AUTO" | "MANUAL"
   seed: number
@@ -105,10 +91,6 @@ export type SolverCargoHint = {
   stackable?: boolean
   bottomOnly?: boolean
   maxStackLoadKg?: number | null
-  /** This line's own clearance override, or null/undefined to use the project default. */
-  clearanceCm?: number | null
-  /** This line's own directional clearance, or null/undefined when it has none. */
-  clearanceSides?: SideClearance | null
 }
 
 export function toPlanView(
@@ -119,9 +101,7 @@ export function toPlanView(
   const equipmentById = new Map(equipment.map((item) => [item.id, item]))
   const cargoById = new Map(cargo.map((item) => [item.id, item]))
 
-  const defaultClearance = result.settings.clearanceCm ?? 0
   return {
-    clearanceCm: defaultClearance,
     seed: result.seed,
     elapsedMs: result.elapsedMs,
     totalCost: result.totalCost,
@@ -146,8 +126,6 @@ export function toPlanView(
         volumeM3: unit.metrics.volumeM3,
         volumePct: unit.metrics.volumePct,
         floorPct: unit.metrics.floorPct,
-        floorActualPct: unit.metrics.floorActualPct,
-        floorEffectivePct: unit.metrics.floorEffectivePct,
         weightPct: unit.metrics.weightPct,
         remainingKg: unit.metrics.remainingKg,
         remainingM3: unit.metrics.remainingM3,
@@ -178,7 +156,6 @@ export function toPlanView(
             stackable: item?.stackable,
             bottomOnly: item?.bottomOnly,
             maxStackLoadKg: item?.maxStackLoadKg,
-            ...clearanceFields(item, defaultClearance),
           }
         }),
       }
@@ -201,9 +178,7 @@ export function withMetrics(unit: PlanUnitView, metrics: UnitMetrics): PlanUnitV
     grossKg: metrics.grossKg,
     volumeM3: metrics.volumeM3,
     volumePct: metrics.volumePct,
-    floorPct: metrics.floorActualPct,
-    floorActualPct: metrics.floorActualPct,
-    floorEffectivePct: metrics.floorEffectivePct,
+    floorPct: metrics.floorPct,
     weightPct: metrics.weightPct,
     remainingKg: metrics.remainingKg,
     remainingM3: metrics.remainingM3,
@@ -213,71 +188,4 @@ export function withMetrics(unit: PlanUnitView, metrics: UnitMetrics): PlanUnitV
     cog: metrics.cog,
     axleLoads: metrics.axleLoads,
   }
-}
-
-/** The clearance fields of a piece from its cargo line's setting and the project default. One resolution, used everywhere. */
-export function clearanceFields(
-  line: { clearanceCm?: number | null; clearanceSides?: SideClearance | null } | undefined,
-  projectDefault: number,
-): Pick<PlanItemView, "clearanceCm" | "clearance" | "clearanceSetting"> {
-  const sides = normaliseSides(line?.clearanceSides)
-  const uniform = typeof line?.clearanceCm === "number" && line.clearanceCm >= 0 ? line.clearanceCm : null
-  const setting: ClearanceSetting = sides ?? uniform
-  const resolved = resolveSides(setting, projectDefault)
-  return { clearance: resolved, clearanceSetting: setting, clearanceCm: maxSide(resolved) }
-}
-
-/**
- * A cargo line's clearance changed for every piece of that line in `items`. Positions, turns and
- * sizes are untouched: the layout is not re-packed, only re-judged. Used by the Playground for a
- * pending change, which Undo, Reset and Cancel simply discard by going back to the earlier items.
- */
-export function withLineClearance(
-  items: PlanItemView[],
-  cargoId: string,
-  setting: ClearanceSetting,
-  projectDefault: number,
-): PlanItemView[] {
-  const fields = clearanceFields(
-    typeof setting === "number" ? { clearanceCm: setting, clearanceSides: null } : { clearanceCm: null, clearanceSides: setting },
-    projectDefault,
-  )
-  return items.map((item) => (item.cargoId === cargoId ? { ...item, ...fields } : item))
-}
-
-/** The lines whose setting differs between the pieces now and the saved ones: what is pending, per line. */
-export function pendingClearanceChanges(
-  current: PlanItemView[],
-  saved: PlanItemView[],
-): { cargoId: string; setting: ClearanceSetting }[] {
-  const original = new Map(saved.map((item) => [item.cargoId, item.clearanceSetting ?? null]))
-  const changes = new Map<string, ClearanceSetting>()
-  for (const item of current) {
-    const now = item.clearanceSetting ?? null
-    if (!sameSetting(now, original.get(item.cargoId) ?? null)) changes.set(item.cargoId, now)
-  }
-  return [...changes].map(([cargoId, setting]) => ({ cargoId, setting }))
-}
-
-/**
- * The pieces as they would be under a proposed clearance change (a new project default and/or new
- * settings for some lines), without moving anything. Used to open the Playground on a draft.
- */
-export function withClearanceDraft(
-  items: PlanItemView[],
-  change: { defaultCm?: number; lines: { cargoId: string; setting: ClearanceSetting }[] },
-  projectDefault: number,
-): PlanItemView[] {
-  const nextDefault = change.defaultCm ?? projectDefault
-  const byLine = new Map(change.lines.map((line) => [line.cargoId, line.setting]))
-  return items.map((item) => {
-    const setting = byLine.has(item.cargoId) ? (byLine.get(item.cargoId) ?? null) : (item.clearanceSetting ?? null)
-    return {
-      ...item,
-      ...clearanceFields(
-        typeof setting === "number" ? { clearanceCm: setting, clearanceSides: null } : { clearanceCm: null, clearanceSides: setting },
-        nextDefault,
-      ),
-    }
-  })
 }

@@ -11,9 +11,9 @@ import { importMappingSchema, MAX_IMPORT_ROWS } from "@/lib/cargo-import"
 import type { ExtractionErrorCode, ExtractionRequest } from "@/lib/extraction-provider"
 import { readWorkbook, SheetError, sheetToText, type WorkbookInfo } from "@/lib/import-sheet"
 import { checkDocumentUpload } from "@/lib/import-upload"
-import { normaliseSides } from "@compass/physics"
-import { cleanSetting, normaliseOverride, settingToJson } from "@/lib/clearance"
+import { isPlannable } from "@/lib/cargo-validation"
 import { editorOrError } from "@/lib/editor"
+import { recordOf } from "@/lib/json"
 import { prisma } from "@/lib/prisma"
 
 const idSchema = z.string().min(1)
@@ -44,7 +44,7 @@ export async function updateCargoItem(projectId: string, cargoId: string, input:
 
   await prisma.cargoItem.update({
     where: { id: existing.id },
-    data: cargoData(project.projectId, parsed.data),
+    data: cargoData(project.projectId, parsed.data, existing.customFields),
   })
   revalidatePath(`/projects/${project.projectId}`)
   return { ok: true as const }
@@ -243,21 +243,46 @@ const importLineSchema = cargoItemInputSchema.superRefine((line, context) => {
 
 export type ImportMode = "append" | "replace"
 
+/** A line to save, with what the review could not settle kept as notes (only for drafts). */
+export type ImportRow = CargoItemInput & { importNotes?: string[] }
+
+const importNotesSchema = z.array(z.string().trim().min(1).max(300)).max(8)
+
+/** An incomplete line is only ever a draft: it needs a name or mark and a quantity, and everything else may still be to do. */
+const draftLineSchema = cargoItemInputSchema.superRefine((line, context) => {
+  if (line.name.trim() === "") context.addIssue({ code: "custom", message: "A draft still needs a description or a mark.", path: ["name"] })
+})
+
 /**
  * Saves reviewed lines. The server checks everything again (access, every line) whatever the
  * screen showed. Replacing needs `confirmReplace`, and the removal and the new lines happen in one
  * transaction, so a failure leaves the project exactly as it was. Existing plans are not rerun: the
  * plan status mechanism sees the cargo changed and marks them out of date.
+ *
+ * With `allowIncomplete`, a line that is not ready for planning is saved as a draft: what is settled
+ * is kept, what is not is left at 0 (the Cargo grid shows it as missing, and a line like that is left
+ * out of equipment suggestions and load plans until it is completed), and what the document said
+ * about it is stored as notes in the line's existing JSON. Nothing is invented to fill a gap.
  */
 export async function importReviewedCargo(
   projectId: string,
-  rows: CargoItemInput[],
-  options: { mode?: ImportMode; confirmReplace?: boolean } = {},
+  rows: ImportRow[],
+  options: { mode?: ImportMode; confirmReplace?: boolean; allowIncomplete?: boolean } = {},
 ) {
   const project = await editableProject(projectId)
   if (!project.ok) return project
-  const parsed = z.array(importLineSchema).min(1).max(MAX_IMPORT_ROWS).safeParse(rows)
-  if (!parsed.success) return { ok: false as const, error: "The import has lines that are incomplete or invalid. Fix or exclude them first." }
+  const incomplete = options.allowIncomplete === true
+  const parsed = z.array(incomplete ? draftLineSchema : importLineSchema).min(1).max(MAX_IMPORT_ROWS).safeParse(rows)
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      error: incomplete ? "The import has lines that cannot be saved even as drafts. Give each a description or mark and a quantity." : "The import has lines that are incomplete or invalid. Fix or exclude them first.",
+    }
+  }
+  const notes = rows.map((row) => {
+    const checked = importNotesSchema.safeParse(row.importNotes ?? [])
+    return checked.success ? checked.data : []
+  })
 
   const mode = options.mode ?? "append"
   if (mode === "replace" && options.confirmReplace !== true) {
@@ -265,18 +290,19 @@ export async function importReviewedCargo(
   }
 
   try {
-    const data = parsed.data.map((row) => cargoData(project.projectId, row))
+    const data = parsed.data.map((row, index) => cargoData(project.projectId, row, undefined, notes[index]))
+    const drafts = parsed.data.filter((row) => !isPlannable(row)).length
     if (mode === "replace") {
       const [removed] = await prisma.$transaction([
         prisma.cargoItem.deleteMany({ where: { projectId: project.projectId } }),
         prisma.cargoItem.createMany({ data }),
       ])
       revalidatePath(`/projects/${project.projectId}`)
-      return { ok: true as const, count: parsed.data.length, removed: removed.count }
+      return { ok: true as const, count: parsed.data.length, removed: removed.count, drafts }
     }
     await prisma.cargoItem.createMany({ data })
     revalidatePath(`/projects/${project.projectId}`)
-    return { ok: true as const, count: parsed.data.length, removed: 0 }
+    return { ok: true as const, count: parsed.data.length, removed: 0, drafts }
   } catch {
     return { ok: false as const, error: "The lines could not be saved, and nothing was changed. Try again." }
   }
@@ -330,7 +356,7 @@ async function editableProject(
   return { ok: true, projectId: project.id }
 }
 
-function cargoData(projectId: string, input: CargoItemInput) {
+function cargoData(projectId: string, input: CargoItemInput, existingCustomFields?: unknown, importNotes?: string[]) {
   return {
     projectId,
     sku: input.sku,
@@ -342,7 +368,7 @@ function cargoData(projectId: string, input: CargoItemInput) {
     quantity: input.quantity,
     shape: input.shape,
     orientation: input.orientation,
-    customFields: extrasJson(input),
+    customFields: extrasJson(input, existingCustomFields, importNotes),
     stackable: input.stackable,
     bottomOnly: input.bottomOnly,
     maxStackLoadKg: input.maxStackLoadKg,
@@ -355,14 +381,21 @@ function cargoData(projectId: string, input: CargoItemInput) {
   }
 }
 
-/** Per-line extras kept in the existing `customFields` JSON column (no migration): rotations and clearance. */
-function extrasJson(input: CargoItemInput): Prisma.InputJsonValue | typeof Prisma.DbNull {
+/**
+ * Per-line extras kept in the existing `customFields` JSON column (no migration): the allowed
+ * rotations. Anything else already stored on the line is carried over untouched, so data an older
+ * version saved there (such as a retired handling-clearance setting) is never read or used, but is not
+ * silently destroyed when the line is edited.
+ */
+function extrasJson(input: CargoItemInput, existing?: unknown, importNotes?: string[]): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  const kept = { ...recordOf(existing) }
   const allowed = input.orientation === "CUSTOM" ? formatAllowedRotations(input.allowedRotations) : null
-  // Directional values win over a uniform one; neither means the line inherits the project default.
-  const clearance = cleanSetting(normaliseSides(input.clearanceSides) ?? normaliseOverride(input.clearanceCm))
-  const stored = settingToJson(clearance)
-  if (!allowed && Object.keys(stored).length === 0) return Prisma.DbNull
-  return { ...(allowed ? { allowedRotations: allowed } : {}), ...stored }
+  if (allowed) kept.allowedRotations = allowed
+  else delete kept.allowedRotations
+  // Notes from an import travel with a draft line only while it is still incomplete. Once it can be planned they have done their job.
+  if (isPlannable(input)) delete kept.importNotes
+  else if (importNotes && importNotes.length > 0) kept.importNotes = importNotes
+  return Object.keys(kept).length === 0 ? Prisma.DbNull : (kept as Prisma.InputJsonObject)
 }
 
 function mappingJson(mapping: z.infer<typeof importMappingSchema>): Prisma.InputJsonObject {

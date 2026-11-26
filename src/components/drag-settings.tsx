@@ -2,7 +2,7 @@
 
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
-import { MIN_SUPPORT_PCT } from "@/lib/clearance"
+import { MIN_SUPPORT_PCT } from "@/lib/support-policy"
 import { useEditorSettings } from "@/lib/editor-settings"
 
 export function DragSettingsPanel() {

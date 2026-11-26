@@ -9,8 +9,8 @@ import {
   type ImportPreview,
   type TabularSheet,
 } from "@/lib/cargo-import"
-import { blankLine, evaluateLine, isImportable, type DocumentTotals, type ReviewLine } from "@/lib/import-review"
-import { parseWeight, readNumber, splitCombinedSize } from "@/lib/import-units"
+import { blankLine, evaluateLine, isImportable, withOriginal, type DocumentTotals, type ReviewLine } from "@/lib/import-review"
+import { parseWeight, readNumber, splitCombinedSize, splitNetGross } from "@/lib/import-units"
 
 /**
  * From a spreadsheet table and the planner's column mapping to review lines. The mapping step is the
@@ -38,6 +38,9 @@ function columnLetter(index: number): string {
   } while (n >= 0)
   return letters
 }
+
+const PER_PIECE_HEADER = /per\s*(?:piece|pc|pcs|package|pkg|unit|item|carton|case|crate)|\beach\b|unit\s*weight|weight\s*each|poids\s*unitaire/i
+const GROSS_HEADER = /gross|g\.?\s?w\b|brut|总|毛重/i
 
 export type TableLines = {
   lines: ReviewLine[]
@@ -123,17 +126,35 @@ export function tableToReviewLines(sheet: TabularSheet, mapping: ImportMapping):
       }
     }
 
-    // Weight: per piece when there is such a column, otherwise the line total (confirmed in review before it is divided).
+    // Weight. A column that says per piece, each or per package is per piece, and so is the plain Weight column the
+    // Compass template uses. A gross weight column that does not say what it is for is left unclear, which only matters
+    // when the quantity is above one. A line total column is the total. A cell with both weights is separated.
     const perPiece = cell("weight").trim()
     const lineTotal = cell("lineWeight").trim()
-    if (perPiece) {
+    const joined = splitNetGross(perPiece) ?? splitNetGross(lineTotal)
+    const source = perPiece ? "weight" : "lineWeight"
+    if (joined) {
+      line.weight = joined.gross
+      line.weightKind = "gross"
+      line.netWeight = joined.net
+      line.infoNotes.push("The net and gross weights were written together in one cell and have been separated.")
+    } else if (perPiece) {
       line.weight = perPiece
-      line.weightScope = "piece"
     } else if (lineTotal) {
       line.weight = lineTotal
-      line.weightScope = "line"
     }
-    if (perPiece && lineTotal) {
+    if (!joined && cell("netWeight").trim()) line.netWeight = cell("netWeight").trim()
+    const header = sheet.headers[columnIndex.get(source) ?? -1] ?? ""
+    if (source === "lineWeight") {
+      line.weightScope = "line"
+    } else if (PER_PIECE_HEADER.test(header) || !GROSS_HEADER.test(header)) {
+      line.weightScope = "piece"
+    } else {
+      line.weightScope = "unclear"
+    }
+    if (header) line.weightEvidence = `Column “${header}”`
+    if (!joined && line.weightKind === "unspecified" && GROSS_HEADER.test(header)) line.weightKind = "gross"
+    if (perPiece && lineTotal && !joined) {
       const each = parseWeight(perPiece, mapping.weightUnit)
       const whole = parseWeight(lineTotal, mapping.weightUnit)
       const count = readNumber(line.quantity)
@@ -156,7 +177,7 @@ export function tableToReviewLines(sheet: TabularSheet, mapping: ImportMapping):
         allowedRotations: optional.allowedRotations,
       }
     }
-    lines.push(line)
+    lines.push(withOriginal(line))
   })
 
   const documentTotals =

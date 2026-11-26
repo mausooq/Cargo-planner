@@ -1,5 +1,4 @@
 import { axleGroupsFromLoads, centreOfGravity, computeUnitMetrics, layoutWarnings, type MetricBox, type MetricUnit } from "@compass/solver"
-import { itemSides } from "@/lib/clearance"
 import type { PlanItemView, PlanUnitView } from "@/lib/plan-view"
 
 export type LiveMetrics = {
@@ -15,12 +14,8 @@ export type LiveMetrics = {
   volumePct: number
   /** Volume left in m³. */
   remainingM3: number
-  /** Same as `floorActualPct`. Kept for existing callers. */
+  /** Floor utilization: the floor covered by the pieces' own footprints. Overlaps count once. */
   floorPct: number
-  /** Floor covered by the pieces' own footprints. Overlaps count once. */
-  floorActualPct: number
-  /** Floor needed once each piece's handling clearance is added. Overlaps count once. */
-  floorEffectivePct: number
   /** Centre of gravity as a share of the unit: 0 = front / left wall / floor, 1 = doors / right wall / roof. */
   cog: { alongPct: number; acrossPct: number; heightPct: number } | null
   /** How far the centre of gravity is from the middle of the width, in cm (positive = right). */
@@ -45,7 +40,6 @@ export function metricBoxesOf(items: PlanItemView[]): MetricBox[] {
     w: item.widthCm,
     h: item.heightCm,
     kg: Math.max(0, item.weightKg),
-    clearance: itemSides(item),
   }))
 }
 
@@ -89,9 +83,7 @@ export function liveMetrics(items: PlanItemView[], unit: MetricsUnit, setAside =
     volumeM3: metrics.volumeM3,
     volumePct: metrics.volumePct,
     remainingM3: metrics.remainingM3,
-    floorPct: metrics.floorActualPct,
-    floorActualPct: metrics.floorActualPct,
-    floorEffectivePct: metrics.floorEffectivePct,
+    floorPct: metrics.floorPct,
     cog,
     offCentreCm,
     axleLoads: metrics.axleLoads,

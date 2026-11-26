@@ -32,7 +32,6 @@ function item(id: string, x: number, y: number, z: number, extra: Partial<PlanIt
     stackable: true,
     bottomOnly: false,
     maxStackLoadKg: null,
-    clearanceCm: 0,
     ...extra,
   }
 }
@@ -84,26 +83,34 @@ describe("layoutProblems", () => {
     expect(layoutProblems(unit, [piece(flat), piece(on)]).get("o-0")).toMatch(/not stackable/)
   })
 
-  it("enforces handling clearance to neighbours and to walls", () => {
-    const a = item("a-0", 10, 10, 0, { clearanceCm: 10 })
-    const tooClose = item("b-0", 115, 10, 0, { clearanceCm: 10 })
-    expect(layoutProblems(unit, [piece(a), piece(tooClose)]).get("b-0")).toMatch(/clearance/i)
-    const exact = item("b-0", 120, 10, 0, { clearanceCm: 10 })
-    expect(layoutProblems(unit, [piece(a), piece(exact)]).size).toBe(0)
-    const atWall = item("w-0", 4, 10, 0, { clearanceCm: 10 })
-    expect(layoutProblems(unit, [piece(atWall)]).get("w-0")).toMatch(/past the wall/)
+  it("rejects pieces that overlap, and a piece partly through a wall", () => {
+    const a = item("a-0", 10, 10, 0)
+    expect(layoutProblems(unit, [piece(a), piece(item("b-0", 60, 10, 0))]).size).toBeGreaterThan(0)
+    expect(layoutProblems(unit, [piece(item("w-0", -4, 10, 0))]).get("w-0")).toBeDefined()
   })
 
-  it("does not ask for clearance between a stacked piece and the one under it", () => {
-    const base = item("a-0", 10, 10, 0, { clearanceCm: 10 })
-    const top = item("b-0", 10, 10, 100, { clearanceCm: 10 })
+  it("accepts pieces that touch, since the packer places them flush", () => {
+    const a = item("a-0", 10, 10, 0)
+    expect(layoutProblems(unit, [piece(a), piece(item("b-0", 110, 10, 0))]).size).toBe(0)
+  })
+
+  it("asks nothing of a piece resting fully on the one under it", () => {
+    const base = item("a-0", 10, 10, 0)
+    const top = item("b-0", 10, 10, 100)
     expect(layoutProblems(unit, [piece(base), piece(top)]).size).toBe(0)
   })
 
-  it("does not accept a clearance margin as stacking support", () => {
-    const base = item("a-0", 10, 10, 0, { clearanceCm: 10 })
-    const overhang = item("b-0", 60, 10, 100, { clearanceCm: 10 })
+  it("does not accept a stacked piece that rests on less than the minimum share", () => {
+    const base = item("a-0", 10, 10, 0)
+    const overhang = item("b-0", 60, 10, 100)
     expect(layoutProblems(unit, [piece(base), piece(overhang)]).get("b-0")).toBeDefined()
+  })
+
+  it("takes the minimum support share from the settings it is given", () => {
+    const base = item("a-0", 10, 10, 0)
+    const half = item("b-0", 60, 10, 100)
+    expect(layoutProblems(unit, [piece(base), piece(half)], { minSupportRatio: 0.9 }).get("b-0")).toBeDefined()
+    expect(layoutProblems(unit, [piece(base), piece(half)], { minSupportRatio: 0.5 }).size).toBe(0)
   })
 })
 
@@ -114,13 +121,13 @@ describe("checkLayoutChange", () => {
     expect(checkLayoutChange(unit, before, after)).toEqual({ ok: true })
   })
 
-  it("rejects an edit that puts a piece in the clearance of another", () => {
-    const a = item("a-0", 10, 10, 0, { clearanceCm: 10 })
-    const before = [piece(a), piece(item("b-0", 120, 10, 0, { clearanceCm: 10 }))]
-    const after = [piece(a), piece(item("b-0", 112, 10, 0, { clearanceCm: 10 }))]
+  it("rejects an edit that pushes a piece into another", () => {
+    const a = item("a-0", 10, 10, 0)
+    const before = [piece(a), piece(item("b-0", 120, 10, 0))]
+    const after = [piece(a), piece(item("b-0", 90, 10, 0))]
     const result = checkLayoutChange(unit, before, after)
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.problems[0]).toMatch(/clearance/i)
+    if (!result.ok) expect(result.pieces.map((entry) => entry.id)).toContain("b-0")
   })
 
   it("rejects leaving a piece floating when the one under it is moved away", () => {
@@ -143,7 +150,7 @@ describe("checkLayoutChange", () => {
     expect(checkLayoutChange(unit, before, after).ok).toBe(false)
   })
 
-  it("behaves as before for a plan with no allowance anywhere", () => {
+  it("passes a layout that was not changed", () => {
     const before = [piece(item("a-0", 0, 0, 0)), piece(item("b-0", 100, 0, 0))]
     const after = [piece(item("a-0", 0, 0, 0)), piece(item("b-0", 100, 0, 0))]
     expect(layoutProblems(unit, after).size).toBe(0)

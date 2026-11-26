@@ -3,7 +3,7 @@
  *
  * Every column has an explicit width. An earlier layout mixed percentages (which already added up
  * to 98%) with fixed widths and left the last data column on "auto": once the fixed columns had
- * taken their share nothing was left for it, so the Clearance column collapsed to no width and sat
+ * taken their share nothing was left for it, so the last column collapsed to no width and sat
  * under the sticky action column. With fixed widths for every column the table is exactly as wide as
  * its columns, `table-fixed` stretches them evenly when there is spare room, and the container
  * scrolls sideways when there is not.
@@ -26,8 +26,6 @@ export type GridColumnKey =
   | "floorOnly"
   | "priority"
   | "stop"
-  | "consignment"
-  | "clearance"
   | "actions"
 
 export type GridColumn = {
@@ -55,8 +53,6 @@ export const GRID_COLUMNS: GridColumn[] = [
   { key: "floorOnly", width: "w-24", rem: 6, advanced: true },
   { key: "priority", width: "w-20", rem: 5, advanced: true },
   { key: "stop", width: "w-20", rem: 5, advanced: true },
-  { key: "consignment", width: "w-40", rem: 10, advanced: true },
-  { key: "clearance", width: "w-56", rem: 14, advanced: true },
   { key: "actions", width: "w-24", rem: 6 },
 ]
 

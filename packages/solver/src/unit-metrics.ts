@@ -1,4 +1,4 @@
-import { clearanceViolations, floorUtilization, type PlanBox } from "@compass/physics"
+import { floorUtilization, type PlanBox } from "@compass/physics"
 import { EPS } from "./geometry"
 import { axleLoads, centreOfGravity } from "./metrics"
 import type { AxleLoad, SolverAxleGroup, SolverEquipment, UnitMetrics } from "./types"
@@ -43,15 +43,12 @@ export function computeUnitMetrics(unit: MetricUnit, boxes: MetricBox[]): UnitMe
   })
   const cog = centreOfGravity(points)
   const floor = floorUtilization(boxes, unit)
-  const actual = round(floor.actualPct)
   return {
     netKg: round(netKg),
     grossKg: round(netKg + unit.tareKg),
     volumeM3: round(usedVolume / 1_000_000, 3),
     volumePct: capacity > 0 ? round((usedVolume / capacity) * 100) : 0,
-    floorPct: actual,
-    floorActualPct: actual,
-    floorEffectivePct: round(floor.effectivePct),
+    floorPct: round(floor.pct),
     weightPct: unit.maxPayloadKg > 0 ? round((netKg / unit.maxPayloadKg) * 100) : 0,
     remainingKg: round(unit.maxPayloadKg - netKg),
     remainingM3: round((capacity - usedVolume) / 1_000_000, 3),
@@ -92,11 +89,6 @@ export function layoutWarnings(unit: MetricUnit, boxes: MetricBox[], metrics: Un
   }
   for (const load of metrics.axleLoads) {
     if (load.kg > load.maxKg + EPS) warnings.push(`${load.name} is estimated over its limit by ${Math.round(load.kg - load.maxKg)} kg`)
-  }
-  const clashes = clearanceViolations(boxes, unit)
-  if (clashes.length > 0) {
-    const pieces = new Set(clashes.map((clash) => clash.id)).size
-    warnings.push(`${pieces} piece${pieces === 1 ? "" : "s"} break the handling clearance`)
   }
   return warnings
 }

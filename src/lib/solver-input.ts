@@ -9,8 +9,6 @@ export function buildSolverInput(input: {
   equipment: EquipmentListItem[]
   objective: "FEWEST_UNITS" | "LOWEST_COST"
   seed?: number
-  /** Project default handling clearance per side, in cm. Omitted or 0 keeps the previous behaviour. */
-  clearanceCm?: number
   /** Project minimum support share, as a percentage. Omitted keeps the packer's own default. */
   minSupportPct?: number | null
 }): SolverInput {
@@ -48,8 +46,6 @@ export function buildSolverInput(input: {
     consignmentId: item.consignmentId,
     segregationClass: item.segregationClass,
     color: item.color,
-    clearanceCm: item.clearanceCm ?? null,
-    clearanceSides: item.clearanceSides ?? null,
   }))
 
   return {
@@ -60,7 +56,6 @@ export function buildSolverInput(input: {
       objective: input.objective,
       timeLimitMs: 4000,
       restarts: 16,
-      clearanceCm: input.clearanceCm ?? 0,
       // Always the resolved value, so the packer judges support by the same share as the Playground and the server.
       minSupportRatio: resolveMinSupportRatio(input.minSupportPct),
     },

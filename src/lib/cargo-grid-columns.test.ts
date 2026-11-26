@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest"
 import { columnsAfter, GRID_COLUMNS, tableMinWidthRem, visibleColumns } from "@/lib/cargo-grid-columns"
 
 describe("cargo grid columns", () => {
-  it("shows the Clearance column, after Consignment and before the actions, only with More columns", () => {
+  it("shows the extra columns, ending with Stop before the actions, only with More columns", () => {
     const basic = visibleColumns(false).map((column) => column.key)
     const more = visibleColumns(true).map((column) => column.key)
-    expect(basic).not.toContain("clearance")
-    expect(more.slice(-3)).toEqual(["consignment", "clearance", "actions"])
+    expect(basic).not.toContain("stop")
+    expect(more.slice(-2)).toEqual(["stop", "actions"])
+    // The Consignment column was removed from the grid; the field itself is still kept on the line.
+    expect(GRID_COLUMNS.map((column) => String(column.key))).not.toContain("consignment")
+    // The handling-clearance column was removed with the feature and must not come back by accident.
+    expect(GRID_COLUMNS.map((column) => String(column.key))).not.toContain("clearance")
   })
 
   it("gives every column an explicit width, so none can collapse to nothing", () => {
@@ -14,11 +18,6 @@ describe("cargo grid columns", () => {
       expect(column.width).toMatch(/^w-\d+$/)
       expect(column.rem).toBeGreaterThan(0)
     }
-  })
-
-  it("keeps the Clearance column wide enough for its summary and settings icon", () => {
-    const clearance = GRID_COLUMNS.find((column) => column.key === "clearance")!
-    expect(clearance.rem).toBeGreaterThanOrEqual(12)
   })
 
   it("keeps the action column wide enough for the duplicate and delete buttons", () => {
@@ -34,9 +33,9 @@ describe("cargo grid columns", () => {
 
   it("sizes the totals row to the columns that really exist", () => {
     expect(visibleColumns(false)).toHaveLength(12)
-    expect(visibleColumns(true)).toHaveLength(17)
+    expect(visibleColumns(true)).toHaveLength(15)
     expect(columnsAfter(false, "quantity")).toBe(4)
-    expect(columnsAfter(true, "quantity")).toBe(9)
+    expect(columnsAfter(true, "quantity")).toBe(7)
     expect(columnsAfter(true, "actions")).toBe(0)
   })
 })

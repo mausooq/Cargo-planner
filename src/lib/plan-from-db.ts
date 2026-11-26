@@ -1,7 +1,7 @@
 import { cargoShapeSchema, equipmentModeSchema, oogClassSchema } from "@compass/domain"
-import { cargoSetting, parseClearanceConfig, settingToCargoFields } from "@/lib/clearance"
+import { floorUtilization } from "@compass/physics"
 import { cargoColor } from "@/lib/format"
-import { clearanceFields, type PlanUnitView, type PlanView } from "@/lib/plan-view"
+import type { PlanItemView, PlanUnitView, PlanView } from "@/lib/plan-view"
 import { parseContour, resolveEquipmentContour } from "@/lib/uld-contour"
 
 type DbPlan = {
@@ -44,7 +44,6 @@ type DbPlan = {
         stackable?: boolean
         bottomOnly?: boolean
         maxStackLoadKg?: number | null
-        customFields?: unknown
       }
     }[]
   }[]
@@ -57,19 +56,15 @@ type DbPlan = {
 }
 
 /**
- * `current` is the project's configuration now. Pieces take their clearance from it, so the layout
- * is always judged against the settings in force today; the plan itself still records the settings
- * it was calculated under (`clearanceCm`, `clearanceConfig`). Without it, the plan's own are used.
+ * A saved plan as the screens use it. Anything the plan was saved with that no longer has a meaning
+ * (older versions kept handling-clearance settings and extra floor figures in the same JSON) is
+ * simply not read, so those plans open exactly like any other. Floor utilization is worked out from
+ * the saved positions every time, so plans saved before it was exact show the exact figure too.
  */
-export function planFromDb(plan: DbPlan, current?: { clearanceCm?: number }): PlanView {
+export function planFromDb(plan: DbPlan): PlanView {
   const summary = asRecord(plan.summary)
-  // The allowance the plan was calculated with. A project default changed later marks the plan stale.
   const settings = asRecord(plan.settings)
-  const clearanceCm = numberOf(settings.clearanceCm, 0)
-  const itemDefault = current?.clearanceCm ?? clearanceCm
   return {
-    clearanceCm,
-    clearanceConfig: parseClearanceConfig(settings.clearanceConfig),
     layoutSource: settings.layoutSource === "MANUAL" ? "MANUAL" : "AUTO",
     seed: plan.seed,
     elapsedMs: numberOf(summary.elapsedMs, 0),
@@ -78,7 +73,7 @@ export function planFromDb(plan: DbPlan, current?: { clearanceCm?: number }): Pl
     units: plan.instances
       .slice()
       .sort((a, b) => a.sequence - b.sequence)
-      .map((instance, index) => unitFromInstance(instance, index, itemDefault)),
+      .map((instance, index) => unitFromInstance(instance, index)),
     unloaded: plan.unloaded.map((row) => ({
       cargoId: row.cargoItemId,
       name: row.cargoItem.name,
@@ -88,10 +83,34 @@ export function planFromDb(plan: DbPlan, current?: { clearanceCm?: number }): Pl
   }
 }
 
-function unitFromInstance(instance: DbPlan["instances"][number], index: number, defaultClearance: number): PlanUnitView {
+function unitFromInstance(instance: DbPlan["instances"][number], index: number): PlanUnitView {
   const metrics = asRecord(instance.metrics)
   const cog = asRecord(metrics.cog)
   const axleLoads = Array.isArray(metrics.axleLoads) ? metrics.axleLoads : []
+  const items: PlanItemView[] = instance.placements.map((placement, itemIndex) => ({
+    id: `${placement.cargoItemId}-${placement.instanceIndex}`,
+    cargoId: placement.cargoItemId,
+    name: placement.cargoItem.name,
+    sku: placement.cargoItem.sku ?? null,
+    color: cargoColor(placement.cargoItem.name, placement.cargoItem.color),
+    x: placement.xCm,
+    y: placement.yCm,
+    z: placement.zCm,
+    lengthCm: placement.lengthCm,
+    widthCm: placement.widthCm,
+    heightCm: placement.heightCm,
+    weightKg: placement.cargoItem.weightKg,
+    sequence: itemIndex + 1,
+    rotation: placement.rotation,
+    shape: cargoShapeSchema.safeParse(placement.cargoItem.shape).success ? cargoShapeSchema.parse(placement.cargoItem.shape) : "BOX",
+    stackable: placement.cargoItem.stackable,
+    bottomOnly: placement.cargoItem.bottomOnly,
+    maxStackLoadKg: placement.cargoItem.maxStackLoadKg ?? null,
+  }))
+  const floor = floorUtilization(
+    items.map((item) => ({ x: item.x, y: item.y, z: item.z, l: item.lengthCm, w: item.widthCm, h: item.heightCm })),
+    { lengthCm: instance.equipmentType.innerLengthCm, widthCm: instance.equipmentType.innerWidthCm },
+  )
   return {
     unitIndex: index,
     equipmentId: instance.equipmentTypeId,
@@ -113,11 +132,9 @@ function unitFromInstance(instance: DbPlan["instances"][number], index: number, 
     grossKg: numberOf(metrics.grossKg, 0),
     volumeM3: numberOf(metrics.volumeM3, 0),
     volumePct: numberOf(metrics.volumePct, 0),
-    // Plans saved before the two floor metrics only stored `floorPct`, which was the actual figure.
-    // With no allowance the effective figure equals it, so old plans stay correct.
-    floorPct: numberOf(metrics.floorActualPct, numberOf(metrics.floorPct, 0)),
-    floorActualPct: numberOf(metrics.floorActualPct, numberOf(metrics.floorPct, 0)),
-    floorEffectivePct: numberOf(metrics.floorEffectivePct, numberOf(metrics.floorActualPct, numberOf(metrics.floorPct, 0))),
+    // From the saved positions, not from a stored figure: older plans stored a grid-rounded one, and
+    // plans saved by an earlier version also stored an "effective" figure that no longer exists.
+    floorPct: Math.round(floor.pct * 10) / 10,
     weightPct: numberOf(metrics.weightPct, 0),
     remainingKg: numberOf(metrics.remainingKg, instance.equipmentType.maxPayloadKg - numberOf(metrics.netKg, 0)),
     remainingM3: numberOf(
@@ -146,29 +163,7 @@ function unitFromInstance(instance: DbPlan["instances"][number], index: number, 
         },
       ]
     }),
-    items: instance.placements.map((placement, itemIndex) => ({
-      id: `${placement.cargoItemId}-${placement.instanceIndex}`,
-      cargoId: placement.cargoItemId,
-      name: placement.cargoItem.name,
-      sku: placement.cargoItem.sku ?? null,
-      color: cargoColor(placement.cargoItem.name, placement.cargoItem.color),
-      x: placement.xCm,
-      y: placement.yCm,
-      z: placement.zCm,
-      lengthCm: placement.lengthCm,
-      widthCm: placement.widthCm,
-      heightCm: placement.heightCm,
-      weightKg: placement.cargoItem.weightKg,
-      sequence: itemIndex + 1,
-      rotation: placement.rotation,
-      shape: cargoShapeSchema.safeParse(placement.cargoItem.shape).success
-        ? cargoShapeSchema.parse(placement.cargoItem.shape)
-        : "BOX",
-      stackable: placement.cargoItem.stackable,
-      bottomOnly: placement.cargoItem.bottomOnly,
-      maxStackLoadKg: placement.cargoItem.maxStackLoadKg ?? null,
-      ...clearanceFields(settingToCargoFields(cargoSetting(placement.cargoItem.customFields)), defaultClearance),
-    })),
+    items,
   }
 }
 

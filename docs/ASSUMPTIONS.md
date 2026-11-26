@@ -162,7 +162,7 @@ The solver packs **primary** equipment only in this phase. Secondary types are s
 
 ## Cargo units
 
-**Storage never changes.** Cargo sizes are stored in centimetres (`lengthCm`, `widthCm`, `heightCm`), the solver works in centimetres, weight is kilograms and volume cubic metres. The unit chosen in the Cargo page's **Sizes in** list only decides how a size is typed and shown. Handling clearance is always entered and shown in centimetres.
+**Storage never changes.** Cargo sizes are stored in centimetres (`lengthCm`, `widthCm`, `heightCm`), the solver works in centimetres, weight is kilograms and volume cubic metres. The unit chosen in the Cargo page's **Sizes in** list only decides how a size is typed and shown.
 
 ### Supported length units
 
@@ -186,9 +186,9 @@ All five are converted by one table in `src/lib/cargo-units.ts`. The Cargo grid,
 
 ### Switching the displayed unit changes nothing stored
 
-Switching the unit only formats the stored centimetres again; no cargo line is saved, nothing is rounded and written back, and no plan is marked out of date (a plan's status depends only on the cargo facts and the clearance configuration, never on the display unit). A stored size changes only when a new one is typed. Showing a size, clicking into a box and out again, or typing back exactly what is shown leaves the stored value as it was, so switching between centimetres and feet repeatedly cannot drift. The display rounds (mm 1 decimal, cm 1, in 2, ft 3, m 3); the stored value does not.
+Switching the unit only formats the stored centimetres again; no cargo line is saved, nothing is rounded and written back, and no plan is marked out of date (a plan's status depends only on the cargo facts, never on the display unit). A stored size changes only when a new one is typed. Showing a size, clicking into a box and out again, or typing back exactly what is shown leaves the stored value as it was, so switching between centimetres and feet repeatedly cannot drift. The display rounds (mm 1 decimal, cm 1, in 2, ft 3, m 3); the stored value does not.
 
-The choice is a browser preference shared by every screen (key `compass.cargo.lengthUnit`, unchanged from before). Cargo grid, equipment catalogue, Calculate and Load plan tables, Playground piece details, the clearance editor and Manage clearances, the 3D dimension labels and the Excel plan export follow it. The printed report is produced on the server, so it states centimetres explicitly.
+The choice is a browser preference shared by every screen (key `compass.cargo.lengthUnit`, unchanged from before). Cargo grid, equipment catalogue, Calculate and Load plan tables, Playground piece details, the 3D dimension labels and the Excel plan export follow it. The printed report is produced on the server, so it states centimetres explicitly.
 
 ### Import and export
 
@@ -196,12 +196,12 @@ The choice is a browser preference shared by every screen (key `compass.cargo.le
 - **Thousands separators** (`1,200`) are still accepted in imported cells.
 - **Saved column mappings** from before feet existed stay valid.
 - **Cargo export** writes sizes in the selected unit with the unit in each size title (`Length (ft)`), at 12 significant digits. In centimetres the export is exactly what it was. Importing an export reads the unit from its titles, so a round trip changes no size by more than the stored precision.
-- **Excel plan export** writes sizes and positions in the selected unit with the unit in every title, and a Units note on the Notes sheet. Clearance, weights (kg) and volumes (m³) keep their units.
+- **Excel plan export** writes sizes and positions in the selected unit with the unit in every title, and a Units note on the Notes sheet. Weights (kg) and volumes (m³) keep their units.
 - **Packing lists read by the AI** are still converted to centimetres by the reader and flagged for review.
 
 ## Packing-list import
 
-One dialog (Cargo step, **Import packing list**, or drop a file or paste an image anywhere on the page) with three ways in: **Upload file**, **Paste image** and **Paste text**. Every way ends in the same review screen, and **nothing is saved until the planner imports**.
+One dialog (Cargo step, **Import packing list**, or drop a file or paste an image anywhere on the page) with three ways in: **Upload file**, **Paste image** and **Paste text**. A spreadsheet then goes through a column-mapping step in the same dialog. Every way ends in the same **review**, which opens on the Cargo page under the cargo grid, not in a modal, so many lines can be seen at once. **Nothing is saved until the planner adds the lines.**
 
 ### Which reader handles what
 
@@ -219,7 +219,7 @@ The dialog says so before any request. Spreadsheets are never sent to the AI unl
 - Header rows are found anywhere on a sheet (title blocks above are skipped). A sheet can hold several tables; each header row starts one. Every sheet is listed and the planner picks the worksheet and table.
 - Merged cells are filled across their block. Blank rows are ignored. Rows that read Total, Sub total, Grand total (also in French, German, Spanish, Chinese and Arabic), and rows that have only numbers and no description or size, are **left out** and listed. A stated total is kept to compare with the lines.
 - A size in one cell (`120 x 80 x 60 cm`, `1.2 x 0.8 x 0.6 m`, `5 ft 6 in x 3 ft x 2 ft`) is split. A unit written once covers all three; a unit on each part stays with it.
-- A line total weight column is divided by the quantity only after the planner confirms it in the review.
+- Weights: the plain **Weight** column (the Compass template's) is per piece. A column that says per piece, each or per package is per piece. A **Gross weight** column that does not say what it is for is left unclear, which only matters when the quantity is above one. A **Total weight** column is the line total. A **Net weight** column is kept as reference. A cell that holds both (`2210 net / 2360 gross`) is separated into the two numbers.
 - Formulas are not read or run: only the values the file already holds. Macro workbooks and external parts are refused. Limits: 5 MB, 25 sheets, 5,200 rows and 120 columns per sheet, 400 zip parts, 80 MB unpacked and a 150:1 squeeze ratio. A sheet over the row limit is refused, never cut short.
 - The `xlsx` package (0.18.5) is an old release with published weaknesses (prototype pollution, regex slowness). The limits and the zip check above keep hostile files away from it, and sheet names such as `__proto__` are never used as keys. A newer SheetJS build is only published outside npm; replacing the dependency needs a decision (see the progress notes).
 - Numbers in spreadsheet cells follow the English convention the importer has always used (dot decimal, comma thousands) and are not flagged as ambiguous.
@@ -228,13 +228,22 @@ The dialog says so before any request. Spreadsheets are never sent to the AI unl
 
 - The model is asked for values **exactly as written** (`150 kg`, `5'6"`, `1.200,5`), not converted. The same code that reads the Cargo grid converts them, so feet and inches, decimal feet, mm, m and in behave identically everywhere.
 - Weights in kg, g, tonnes (`t`) and pounds are converted to kg (`ton` is refused: short, long and metric differ). Compass stores kg.
-- A unit that is not written in the document is **never assumed**: the line is flagged "Ambiguous value" and the planner chooses.
-- Per piece, line total and unclear weights are kept apart. A line total becomes a per-piece weight only when the quantity is known, is shown as "calculated by Compass" with the working (`750 kg ÷ 5 pieces = 150 kg per piece`), and needs confirming. A shipment total is never spread across lines. Net weights are flagged until confirmed. Quantity × weight is compared with a line total and with the document's totals; differences are shown, not changed.
+- A unit that is not written in the document is **never assumed**: the numbers are kept as read, the cells are highlighted and the planner chooses. A unit stated once for the whole table (a column title or a note, `tableSizeUnit`) is used for the lines that state none, and the line says so. One choice of unit in the review covers every row without one. Sizes keep the order the document gives; nothing is inferred about how a package may be turned.
+- **Gross and net are separate numbers.** The reader is asked for `grossWeight` (with packaging), `netWeight` and, for a weight with no label, `weight`, each as one number with its unit, never joined (`2210 net / 2360 gross` is two fields). If a reading still joins them, `splitNetGross` separates them, so a joined cell no longer blocks a line. Planning uses the **gross** weight when there is one; the net weight is kept as reference and shown in the details. A line with only a net weight uses it only after the planner confirms. A net weight above the gross weight is flagged.
+- **What a weight is for.** The reader reports `weightScope` (per piece, line total, or unclear) and the words that say so (a column title or a quote). With a **quantity of 1** the distinction does not exist, so nothing is asked. With a quantity above 1: per piece is used directly; an explicit line total is divided by the quantity (shown as a note, not a blocker); when the document does not say, the number is kept as read and the planner chooses each or total, and the line stays unsettled until they do. A weight is never silently assumed to be per piece, and never multiplied. A shipment total is never spread across lines.
 - A number like `1,200` or `1.200` can be read two ways. It is read the English way, flagged, and the planner confirms it. A number starting with 0 (`0.777`) is a decimal.
-- Hazard class, stackability, floor-only, turning and clearance are applied only when the document states them for that line. Handling notes and a destination that is a place name are kept for reading in the review and are **not** stored on the cargo line (no schema change). "This side up" means the piece may still turn on the floor (`ROTATE_90`); "do not rotate" means `FIXED`.
+- Hazard class, stackability, floor-only and turning are applied only when the document states them for that line. Handling notes and a destination that is a place name are kept for reading in the review and are **not** stored on the cargo line (no schema change). "This side up" means the piece may still turn on the floor (`ROTATE_90`); "do not rotate" means `FIXED`.
 - Original descriptions and marks are kept as written. A translation is shown beside, never over, the original.
-- Statuses: Ready for review, User corrected, Missing required information, Ambiguous value, Invalid value, Excluded from import. "Model-reported uncertainty" is shown separately from "checks Compass made itself". Source page, row and quote are shown only when the reader gave them; none are invented and no confidence percentages are shown.
+- Statuses in the table: OK, Edited, Missing, Check, Invalid, Excluded (hover for the full wording). "Model-reported uncertainty" is shown separately from "checks Compass made itself". Source page, row and quote are shown only when the reader gave them; none are invented and no confidence percentages are shown.
 - Everything in a document or pasted text is data, never an instruction: the prompt says so, pasted text is fenced so it cannot close its wrapper, the answer is validated against a schema before use, control and direction-override characters are removed, and all text is shown as plain text.
+
+### The review
+
+- **A compact table**, like the Cargo grid: select, mark, name, L, W, H, kg per piece, quantity, stackable, status, row actions. Cells are edited in place; a typed size is read in the unit the column heading shows (`L (ft)`), and a typed weight is the planning weight of one piece in kg. The heading follows the saved display unit; the original numbers and units are kept (see **Details** on a row: original values, size and weight units, gross or net, what the weight is for, shape, stacking, floor-only, turning, hazard class, handling notes and the reader's doubts).
+- **One "Please check" box** (collapsible, closed by default on a long list) folds the problems into three kinds, each said once with the rows it applies to: missing or invalid (fix), needs your confirmation, and for your information (unit conversions, a weight worked out from a line total, a net weight kept as reference). Only the affected cells are highlighted; selecting one says why.
+- **View original** (and the magnifier on a row) opens the original PDF, image, sheet or text in a separate dialog at the page, row or quote the reader reported. Closing it loses nothing. PDFs use the browser's own viewer, so zoom and page navigation work.
+- **One summary line** under the table: lines selected, pieces, kg, m³ and lines needing review, recalculated on every edit, selection and exclusion. A line whose quantity is known always counts its pieces. Weight counts only settled weights and volume only known sizes; the line says how many lines are left out ("partial").
+- **Add lines and suggest equipment** needs every selected line complete. **Add lines only** also accepts incomplete lines as drafts (below). Append or replace is offered when the project already has cargo; replacing needs confirmation. Back and Cancel change nothing.
 
 ### Limits and honest gaps
 
@@ -248,10 +257,12 @@ The dialog says so before any request. Spreadsheets are never sent to the AI unl
 
 ### Saving
 
-- Only included, complete, validated lines are saved, and the server checks every line again (size and weight above zero, a name or mark, project access in the planner's organization).
+- Complete, validated lines are saved as cargo, and the server checks every line again (size and weight above zero, a name or mark, project access in the planner's organization).
+- **Drafts.** With **Add lines only**, a line that is not complete (a size with no unit, a weight whose meaning is open, a missing weight) can still be added to finish in the Cargo grid. It needs a name or mark and a quantity. What is settled is kept; what is not is saved as **0**, which the Cargo grid already shows as missing and which keeps the line out of equipment suggestions, the Calculate step and load plans (`plannableLines`). What the document said (the sizes as written with their missing unit, the weight as written) is stored as notes inside the line's existing JSON (`customFields.importNotes`; no schema change) and shown in the grid next to the name until the line is complete, then dropped. No value is invented to fill a gap. Equipment suggestions need every selected line complete, so they are not offered for a draft.
+- The Calculate step now leaves out any incomplete line (it used to pass them all to the packer) and says how many were left out.
 - **Append** adds the lines. **Replace** needs an explicit confirmation and runs removal and creation in one transaction, so a failure leaves the cargo as it was. Replacing also removes the old lines' places in any saved plan (they are deleted with the lines), so the plan is out of date and must be calculated again.
 - Repeated lines (same mark, name, size and weight) and lines already in the project are pointed out, never removed. Several lines may share a SKU.
-- Importing changes the cargo signature, so the existing plan shows as out of date through the usual plan-status mechanism; nothing is recalculated automatically. Equipment suggestions are computed from the cargo and follow it. Project clearance applies unless the document stated a clearance for the line.
+- Importing changes the cargo signature, so the existing plan shows as out of date through the usual plan-status mechanism; nothing is recalculated automatically. Equipment suggestions are computed from the cargo and follow it.
 - The saved display unit is not changed by an import.
 
 ### Configuration
@@ -270,91 +281,31 @@ Change these before any shared deployment. Sessions are JWT credentials sessions
 
 SQLite is the local database. JSON columns hold axle groups, rules, and plan metrics. Floats are used for dimensions and the relative cost figure.
 
-## Floor utilization and handling allowance
+## Floor utilization
 
-Every unit shows two floor figures. They come from one shared function (`floorUtilization` in `packages/physics/src/footprint.ts`), so the Calculate table, the Load plan, the Playground, the Excel export, the printed report and the saved plan always report the same numbers for the same layout.
+Every unit shows **one** floor figure, Floor utilization. It comes from one shared function (`floorUtilization` in `packages/physics/src/footprint.ts`), so the Calculate table, the Load plan, the Playground, the Excel export, the printed report and the saved plan always report the same number for the same layout.
 
 ### Footprint convention
 
 Whatever its shape, a piece occupies the rectangle `l × w` of its placed bounding box (the solver has always done this). A drum is therefore a square footprint, not a circle, and a pipe is its length by its diameter. The entered external dimensions are used as they are: packaging that is already inside them is not added again. All lengths are centimetres.
 
-A piece counts as standing on the floor when its underside is within 0.5 cm of the floor (`FLOOR_CONTACT_TOLERANCE_CM`). Stacked or raised pieces do not occupy floor directly and are left out of both figures.
+A piece counts as standing on the floor when its underside is within 0.5 cm of the floor (`FLOOR_CONTACT_TOLERANCE_CM`). Stacked or raised pieces do not occupy floor directly and are left out.
 
-### Actual floor utilization (%)
-
-```
-actual % = area( union of [x, x + l] × [y, y + w] over floor pieces ) / (unit length × unit width) × 100
-```
-
-The union is exact (no grid, no rounding of positions or sizes) and counts overlapping footprints once. Before this change the Playground estimated the figure on a 5 cm grid and rounded every piece outward, so it read higher than the Load plan for the same pieces (for example 15.8% against 13.8%), and a saved layout never refreshed the stored figure.
-
-### Effective floor utilization (%)
+### Floor utilization (%)
 
 ```
-effective % = area( union of [x − a, x + l + a] × [y − a, y + w + a] over floor pieces ) / (unit length × unit width) × 100
+floor % = area( union of [x, x + l] × [y, y + w] over floor pieces ) / (unit length × unit width) × 100
 ```
 
-`a` is the piece's handling allowance (below). The grown rectangles are not clipped to the unit, so a piece whose allowance reaches past a wall still shows in the number, and is reported as a clearance problem instead of being hidden. Where two pieces share a gap the shared area is counted once. With no allowance the two figures are identical.
+The union is exact (no grid, no rounding of positions or sizes) and counts overlapping footprints once. Before this was shared, the Playground measured on a 5 cm grid, which rounded every piece outward and made the same layout read differently on different screens (13.8% against 15.8% on one test layout). That grid is gone, and nothing returns to it.
 
-### Handling allowance
+### Plans saved by earlier versions
 
-The allowance is operational spacing kept free around a piece: room for forks, hands or lashing. It is not packaging. Wrapping, crating or pallets already included in the entered sizes must not be entered again.
+The floor figure of a saved plan is **worked out from its saved positions every time the plan is opened**, not read from a stored number. A plan from before the exact calculation therefore shows the exact figure, and a plan saved by a version that also kept an "effective" figure simply does not show it. The stored numbers stay in the database, unread.
 
-- **Per side.** An allowance of 5 cm keeps 5 cm free on every side of the piece (10 cm added to its length and to its width).
-- **Walls.** A piece keeps its full allowance against the unit walls, so its grown rectangle must stay inside the unit.
-- **Neighbours.** The gap is shared: two pieces that are beside each other must be at least `max(a₁, a₂)` apart, not `a₁ + a₂`. A piece with no allowance still respects a neighbour's allowance.
-- **Height.** It applies between pieces that share some height. A piece resting on another needs no clearance from it. Clearance is horizontal only; it is not applied to the roof.
-- **Never support.** Stacking support, overhang and stability use the physical footprint only. A clearance margin never counts as something to rest on.
-- **Shapes.** The check uses the bounding rectangle for boxes, drums and pipes, like the solver. (With no allowance the Playground still lets round drums sit closer than their bounding squares, as before.)
+Earlier versions of the app offered a handling allowance (free space around cargo). It was removed. Its settings can still sit in stored JSON: `Project.rules.clearanceCm`, a cargo line's `customFields.clearanceCm` / `clearanceSides`, a plan's `settings.clearanceCm` / `clearanceConfig`, and the `floorActualPct` / `floorEffectivePct` metrics. They are **ignored**: nothing reads them to calculate, show or check anything, no migration or cleanup has been run, and no data was deleted. Other keys in the same JSON are written back unchanged when a line, a layout or a project rule is saved, so saving never strips them either. They are harmless dormant data. A cleanup, if ever wanted, would be an optional one-off script run with approval.
 
-Where it is set:
-
-| Level | Where | Stored in |
-| --- | --- | --- |
-| Project default | Workspace step, "Handling allowance" (cm per side). Default 0. | `Project.rules` JSON as `{ "clearanceCm": n }` |
-| One cargo line | Data step, Advanced columns, "Clearance" (opens the clearance editor), or Manage clearances. Default, uniform (0 means none for that line) or directional; see below. | `CargoItem.customFields` JSON as `{ "clearanceCm": n }` or `{ "clearanceSides": {…} }` |
-| Used by a plan | Recorded when the plan is calculated. If the project default changes later the plan is marked out of date until it is recalculated. | `Plan.settings.clearanceCm` |
-
-No database migration is involved: the values live in existing JSON columns, and a missing value means 0, so projects and plans saved before this feature behave exactly as before. Allowed range is 0 to 100 cm.
-
-The solver places each piece inside the space left after the allowance to the walls and to its neighbours, and cuts free space by the grown rectangle. A piece that fits the unit physically but not with its allowance is reported as not loaded with the reason `CLEARANCE`. The Playground refuses a drop that breaks the rule ("Needs N cm more clearance from …", "Clearance reaches N cm past the wall"), and flush snapping to walls and neighbours stops at the allowance.
-
-### Clearance modes per cargo line, and directional clearance
-
-Each cargo line is in one of three modes:
-
-| Mode | Meaning | Stored in `CargoItem.customFields` |
-| --- | --- | --- |
-| **Default** (inherit) | Uses the project default and follows it when it changes. | neither key |
-| **Uniform** | One value on all four sides. `0` is an explicit "none for this line" and is **not** the same as inheriting: it stays 0 when the project default changes. | `{ "clearanceCm": n }` |
-| **Directional** | Separate front, rear, left and right values. | `{ "clearanceSides": { "front", "rear", "left", "right" } }` |
-
-Directional values win over a leftover uniform number. Older projects only ever have `clearanceCm` (or nothing), which read exactly as before. Values are 0 to 100 cm; anything negative, non-numeric or incomplete is ignored (the line inherits) when read, and refused when saved. A change to a line applies to every piece of that line, whatever its quantity and whichever unit holds it. It reserves handling space only: it adds no weight, volume or packaging and is never support.
-
-**The sides belong to the piece, as it was entered.** Front is the end of the piece's length that faces the front of the unit when it is placed as entered (rotation `LWH`), rear faces the doors, left is the low-y side and right the high-y side. They turn with the piece:
-
-| Rotation code | What it is | Front faces | Rear faces | Left faces | Right faces |
-| --- | --- | --- | --- | --- | --- |
-| `LWH` | as entered | front of unit | doors | left wall | right wall |
-| `WLH` | quarter turn clockwise seen from above | left wall | right wall | doors | front of unit |
-| `LWH@180` | half turn | doors | front of unit | right wall | left wall |
-| `WLH@180` | three quarter turns | right wall | left wall | front of unit | doors |
-
-The two `@180` codes are the same footprints as `LWH` and `WLH` facing the other way. They are only offered by the packer, and accepted by the server, for lines whose four values differ and whose orientation is not `FIXED`; a uniform line looks the same turned either way, so its rotation codes and results are exactly what they were before. The Playground's **Rotate 90°** steps a piece with differing values through all four facings.
-
-**A piece tipped onto another face** (`LHW`, `HLW`, `WHL`, `HWL`; its height is no longer vertical): its own front, rear, left and right no longer line up with the four plan sides, and two of its faces now point up or down where floor clearance has no meaning. Nothing is discarded and nothing is guessed: **the largest of the four values is applied on every side.** This is conservative (it never reserves less than any value that was entered) and does not depend on which way the piece was tipped. The same rule applies to a rotation code that cannot be read.
-
-**Shared gaps between neighbours.** The space reserved around a piece is its footprint grown by each side's own value. Two pieces at the same height are valid when neither one's physical box is inside the other's reserved space. Where two sides face each other this means the gap must be at least the larger of the two facing values, never their sum. Sides that do not face the neighbour do not matter, and a line set to 0 must still stay out of a neighbour's reserved space. Against a wall each side keeps its own value, so a piece that needs room at the front can stand hard against the rear wall.
-
-**Reserved space overlapping is normal.** Two neighbouring pieces share the gap between them, so their amber frames in the 3D view overlap on purpose. Red marks a piece whose reserved space is actually broken. In the effective floor figure overlapping reserved space is counted once.
-
-The same functions decide all of this everywhere (`packages/physics/src/footprint.ts` for geometry, `clearance-model.ts` for modes and rotation): the packer, equipment recommendations (each trial run uses the project's and every line's settings), the Playground's drop check, snapping and free-spot search, the server's save check, the effective floor figure and the 3D frames.
-
-### One saved configuration, and when a plan is out of date
-
-The project default (`Project.rules.clearanceCm`) and each line's setting are the single source of truth for the Cargo page, Manage clearances, the Calculate and Load plan pages and the Playground. A plan records, in `Plan.settings`, the cargo it was calculated from (`cargoSignature`) and the clearance configuration it was calculated or last checked under (`clearanceCm`, `clearanceConfig` with the default and every line's own setting), plus `layoutSource`.
-
-A plan is out of date when **either** the cargo facts that decide packing differ from the signature (lines added or removed, sizes, weights, quantities, orientation, stacking and priority rules; names, SKUs, colours and clearance are not part of it) **or** the configuration now in force differs from the recorded one. They are tracked separately on purpose: re-checking a layout under new clearances updates the recorded configuration only, so it can never hide an unrelated cargo edit. The banner says what differs ("project default 2 → 5 cm, 3 cargo lines with a different clearance"). Plans saved before signatures fall back to edit times (and to the project default alone if they have no recorded configuration). `src/lib/plan-staleness.ts` is the one place this is decided.
+A plan packed with an allowance keeps the positions it was saved with. It stays valid (pieces simply have extra space between them), is not marked out of date because of it, and is repacked only when the planner chooses Recalculate. A piece an earlier version left unloaded for its allowance (reason `CLEARANCE`) is still listed with the explanation it saved.
 
 ### Plan status
 
@@ -363,67 +314,51 @@ One status is shown everywhere (`src/lib/plan-status.ts`): the stepper, the Calc
 | Status | When |
 | --- | --- |
 | Not calculated | There is no plan. |
-| Calculating… | A calculation, or a clearance change being saved and applied, is running. |
-| Plan ready | A plan exists and matches the project's cargo and clearance configuration. |
-| Out of date | A plan exists but the cargo or the clearance configuration changed since. |
-| Calculation failed | The last calculation or recalculation failed. A previous plan, if any, is still shown but is never reported as ready. |
+| Calculating… | A calculation is running. |
+| Plan ready | A plan exists and matches the project's cargo. |
+| Out of date | A plan exists but the cargo changed since. |
+| Calculation failed | The last calculation failed. A previous plan, if any, is still shown but is never reported as ready. |
 
-A clearance change that is **rejected** (the current layout cannot keep it) saves nothing, so it does not change the status at all: a ready plan stays ready and an out-of-date plan stays out of date. "Keep current layout" and Save & Recalculate return the plan to ready only when it then matches the project; an unrelated cargo edit keeps it out of date.
+A plan is out of date when the cargo facts that decide packing differ from its recorded **cargo signature** (`cargoSignature` in `Plan.settings`): lines added or removed, sizes, weights, quantities, orientation, allowed rotations, stacking and priority rules. Names, SKUs, colours and anything a line carries that is no longer used are not part of it. The signature function was not changed when the allowance was removed, so every signature saved before still matches the same cargo: removing the feature does not mark a single plan out of date. Plans saved before signatures fall back to edit times. `src/lib/plan-staleness.ts` is the one place this is decided.
 
-### Applying clearance changes
+### Hand-arranged layouts
 
-**Manage clearances** (next to the project allowance on the Calculate and Load plan pages) shows the project default and every cargo line (searchable, 100 at a time) and uses the same editor as the Cargo page. Edits, and the project default field, are collected and applied together; nothing runs per keystroke.
+A plan is **automatic** until the planner moves cargo in the Playground and saves; after that it is **hand-arranged** (`Plan.settings.layoutSource`, "MANUAL") and stays so. The Load plan says "Hand-arranged layout: it is not repacked automatically", and the Playground shows the same notice. Nothing repacks a plan by itself.
 
-- **No calculated plan:** the settings are only saved. The packer is not run.
-- **A calculated plan, automatic or hand-arranged:** the same dialog, "Apply clearance changes", offers three choices. A hand-arranged plan also shows a warning that recalculating replaces the arrangement.
-  - **Cancel** persists nothing. The saved settings, layout and plan are exactly as they were.
-  - **Keep current layout** checks every piece in every unit against the new settings. If all of them still have their room, the settings are saved, every metric is recalculated, the recorded configuration is updated, and no position, turn or facing changes (the packer is never run). If any piece does not, nothing is saved and nothing moves; the pieces are listed, and the proposal stays on screen as a draft (below).
-  - **Save & Recalculate** saves everything in one transaction and runs the packer once, with exactly the configuration the server stored. If the recalculation fails, the settings stay saved, the previous plan stays on screen marked out of date and the status is "Calculation failed", with a **Retry recalculation** button.
-- While a request runs a status line is shown and the actions are disabled; a second request is refused.
+Recalculating packs the cargo again and replaces the layout, so it asks first whenever that would throw away the planner's work: with moves not yet saved ("Recalculate and discard your layout edits?"), and with a saved hand-arranged layout ("Recalculate and replace your hand-arranged layout?"). Cancel changes nothing. The rule is `recalculateGuard` in `src/lib/recalc-guard.ts`. The out-of-date banner says the layout will be replaced and that the planner is asked first.
 
-**A rejected proposal is a draft.** The message says it was not saved and nothing changed, shows what was proposed and which pieces (with their unit) break it, and offers **Fix in Playground**, **Save & Recalculate instead** and **Discard proposed changes**. Fix in Playground opens the Load plan on the first affected unit with the proposal applied as an unsaved draft: the broken pieces are red, the draft is shown, and Reset layout discards it. When the layout is valid again, saving the layout saves the draft settings with it. The server re-checks everything and stores nothing unless the whole arrangement is valid, so an invalid layout can never be saved as a valid plan.
+### Rotation codes
 
-**Hand-arranged layouts.** A plan is *automatic* until a saved layout edit moves cargo, after which it is marked `MANUAL` in `Plan.settings.layoutSource` (existing JSON, no migration; plans saved before this are automatic). Saving a layout never re-runs the packer.
+A placed piece's rotation code says which of its entered axes lie along x, y and z (`LWH` as entered, `WLH` a quarter turn, other orders when tipped), and may end in `@180` for a half-turn facing. The packer now writes only the plain codes, but plans saved by earlier versions can hold `LWH@180` and `WLH@180`. They are still read, validated and shown (the Turned tag says "Turned 180°"), and the saved sizes and codes are never rewritten just to tidy them.
 
-**In the Playground** a line's clearance can also be edited from the selected piece (it applies to all pieces of that line). It is pending like a moved piece: the layout is re-checked live, pieces whose reserved space is broken turn red, nothing is repositioned, Undo / Reset layout discard it, and it is saved together with the layout.
-
-**A layout save checks every unit when the configuration differs from the one the plan was last checked under**, not only the unit that was sent, so a plan is never recorded as checked against settings that one of its units breaks.
+- Rotating a piece in the Playground swaps its length and width. A piece as entered flips between `LWH` and `WLH` as it always did. A piece saved with a half-turn facing keeps going round (`LWH@180` → `WLH@180` → `LWH` → `WLH`), so its code always agrees with its sizes. A tipped piece swaps the first two axes of its code.
+- The facing never changes what a piece occupies, so it never affects floor use, collisions or support.
+- A line with a fixed orientation keeps exactly the orientation it was entered in: the Playground refuses to turn it, and the server refuses a save in which it is turned or faces the other way, even when its footprint is square.
+- The Excel packing list shows each piece's rotation code and, beside it, the facing in words.
 
 ### One minimum support share
 
 The smallest share of a stacked piece that must rest on something is a **planning constraint, not a guarantee of physical stability**: an area ratio plus a check that the centre of gravity is over the support. It does not model friction, load shift, vibration or securing, and a layout that passes it is not thereby safe to ship.
 
-There is one default, **75%** (`DEFAULT_MIN_SUPPORT_PCT`, the packer's own, stricter value), and one way of resolving it (`resolveMinSupportPct`): the project's own setting (`Project.rules.minSupportPct`, 50 to 100) when it has a valid one, otherwise 75%. The packer, the Playground's drop check, its keyboard moves, rotation and add-back (which used to use a fixed 70%), the free-spot search and the server's save check all use that resolved value. A project with no setting therefore gets 75% everywhere; a project with an explicit setting keeps it everywhere.
+There is one default, **75%** (`DEFAULT_MIN_SUPPORT_PCT`, the packer's own, stricter value), and one way of resolving it (`resolveMinSupportPct`): the project's own setting (`Project.rules.minSupportPct`, 50 to 100) when it has a valid one, otherwise 75%. The packer, the Playground's drop check, its keyboard moves, rotation and add-back, the free-spot search and the server's save check all use that resolved value. A project with no setting therefore gets 75% everywhere; a project with an explicit setting keeps it everywhere.
 
 - The Playground starts from the project's value every time it opens; a number left in the browser from earlier is not used.
-- A value sent by the browser with a layout save must be a number from 50 to 100 or the save is refused. It is the planner's explicit change to the project's setting: it is used for that save and stored, so afterwards the packer, the Playground and the server all use it. The default (75%) is never written to the project, so saving a layout alone never changes how the packer behaves. Only planners and admins can save.
+- A value sent by the browser with a layout save must be a number from 50 to 100 or the save is refused. It is the planner's explicit change to the project's setting: it is used for that save and stored, so afterwards the packer, the Playground and the server all use it. The default (75%) is never written to the project, so saving a layout alone never changes how the packer behaves. Other keys in the project's rules are kept. Only planners and admins can save.
 - A stored value outside 50 to 100 is ignored (75% applies).
-- Support is one rule among several: collisions, walls, clearance, stacking, floor-only and rotation checks are unchanged by it.
+- Support is one rule among several: collisions, walls, stacking, floor-only and rotation checks are unchanged by it.
 - Layouts saved earlier under the old 70% Playground/server default may be refused if a piece in them is moved, or something under them moves, and they have between 70% and 75% support. A piece already in that state that is not touched does not block a save.
-
-### Limitations added or confirmed by this work
-
-- Rotation facing (`@180`) and the per-side values are stored in existing text and JSON fields. A piece edited outside the app, or a rotation code from another version, that cannot be read is treated as tipped: the largest value applies on every side.
-- Directional values of a tipped piece are collapsed to their largest value, so a piece that must be tipped can need more room than its entered values suggest. This is accepted for the current scope.
-- A line with a fixed orientation keeps exactly the orientation it was entered in: the Playground refuses to turn it, and the server refuses a save in which it is turned or faces the other way, even when its footprint is square.
-- The Excel packing list shows each piece's rotation code and, beside it, the facing in words (as entered, turned 90°, 180°, 270°, or tipped onto another face).
-- Older rotation codes (`LWH`, `WLH`) are unchanged and read as before.
-- The packer offers all four facings only to pieces whose values differ. For very tight mixed loads its greedy placement can leave more cargo unloaded than an optimal packer would.
-- "Keep current layout" and the server check judge the layout as it is; they do not try to move cargo to make room.
-- Which plan is "hand-arranged" is recorded when a saved layout edit moved something; a plan edited before this release is treated as automatic.
-- The loading sequence number is still not stored in the database: after a reload it is the order the pieces are read back.
-- A freshly calculated plan is stored as the browser sent it; only hand-edited layouts are re-validated by the server.
-- The Cargo grid's Clearance column, the editor and the Manage clearances panel have been checked by automated tests of their logic and by manual testing, not by browser automation.
-- Axle loads remain a planning estimate (cargo weight only, simple beam model, rear groups sharing equally). They are shown as estimates and as warnings, and are not an operational, legal or safety compliance check.
 
 ### Metrics recalculated on every change
 
-`computeUnitMetrics` (`packages/solver/src/unit-metrics.ts`) turns a list of placed pieces into every unit figure: weight, remaining payload, volume, remaining volume, both floor figures, centre of gravity, estimated axle loads and the used length, width and height. The solver, the Playground (`liveMetrics`) and the server all call it.
+`computeUnitMetrics` (`packages/solver/src/unit-metrics.ts`) turns a list of placed pieces into every unit figure: weight, remaining payload, volume, remaining volume, floor utilization, centre of gravity, estimated axle loads and the used length, width and height. The solver, the Playground (`liveMetrics`) and the server all call it.
 
 - In the Playground the figures are recomputed from the pieces on every accepted change: move, turn, set aside, add back, undo and reset. Nothing is cached, so undo and reset return exactly the earlier numbers, and the packing algorithm is never re-run on a hand-arranged layout.
-- `savePlanLayout` does not trust the client. It checks the final layout with the same physics as the Playground (walls, collisions, handling allowance, support, stacking, floor-only pieces, allowed turns), recalculates every figure and stores positions, metrics and warnings together in one transaction. The Load plan table and header are updated from what the server returns, and a reload reads the stored figures.
+- `savePlanLayout` does not trust the client. It checks the final layout with the same physics as the Playground (walls, collisions, support, stacking, floor-only pieces, allowed turns), recalculates every figure and stores positions, metrics and warnings together in one transaction. The Load plan table and header are updated from what the server returns, and a reload reads the stored positions.
 - A piece that was already invalid in the plan being replaced (for example from an older version) does not block a save unless it is the piece being moved, or something moved away from under it.
-- Plans saved before the two figures existed have only `floorPct`, which was the exact figure. They are read with both figures equal to it.
+
+### Packing is unchanged
+
+Removing the allowance did not change how cargo is packed. `packages/solver/src/packing-equivalence.test.ts` pins nine representative jobs (uniform and mixed boxes, stacking rules, drums and pipes, overflow, an oversized piece, two equipment types, stops and priorities, a payload limit) to what the solver produced before the removal: the number of units, pieces packed and left out, each unit's floor utilization, and a fingerprint of every placement's position, size, rotation and loading order. A packing change that alters them must be deliberate and say why.
 
 ### Known limitations
 
@@ -432,6 +367,6 @@ There is one default, **75%** (`DEFAULT_MIN_SUPPORT_PCT`, the packer's own, stri
 - The server does not validate loading order, destination (stop) order, or the ULD contour shape of hand-moved pieces, which matches what the Playground checks.
 - The loading sequence number is not stored in the database; after a reload it is the order the pieces are read back.
 - The server checks a hand-edited layout; a freshly calculated plan from the solver is still stored as sent by the browser.
-- The check of a saved layout uses the project's minimum support share (see "One minimum support share" below), the same value the Playground uses and, when the project sets one, the packer.
-- The packer's handling of mixed allowances is greedy: it slides a piece past a neighbour along the length, then the width. In very tight loads this can leave more cargo unloaded than an optimal packer would. It never produces a layout that breaks the rule.
+- Which plan is "hand-arranged" is recorded when a saved layout edit moved something; a plan edited before this was recorded is treated as automatic.
+- Replacing cargo (importing with "replace") removes the old lines' places in a saved plan, because they are deleted with the lines; the plan then shows as out of date.
 - Costs, payloads and axle limits remain planning defaults, not certified ratings.

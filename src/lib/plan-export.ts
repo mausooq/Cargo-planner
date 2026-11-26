@@ -1,16 +1,15 @@
-import { ACTUAL_FLOOR_HELP, AXLE_ESTIMATE_NOTE, CLEARANCE_HELP, clearanceText, EFFECTIVE_FLOOR_HELP } from "@/lib/clearance"
+import { AXLE_ESTIMATE_NOTE, FLOOR_HELP } from "@/lib/plan-notes"
 import { describeRotation } from "@compass/physics"
 import { LENGTH_UNIT_LABEL, LENGTH_UNIT_SYMBOL, roundDisplayLength, toDisplayLength, type LengthUnit } from "@/lib/cargo-units"
 import type { PlanUnitView, PlanView } from "@/lib/plan-view"
 
 /**
  * One row of the Summary sheet. The size column titles carry the unit they are written in, for
- * example "Used length (ft)", so the sheet is unambiguous. Weights are kg, volumes m³, and
- * clearance is always in cm.
+ * example "Used length (ft)", so the sheet is unambiguous. Weights are kg and volumes m³.
  */
 export type SummaryRow = Record<string, string | number>
 
-/** One row of the Packing list sheet. Titles such as "Length (ft)" and "From front (ft)" name the unit; "Clearance" is text in cm. */
+/** One row of the Packing list sheet. Titles such as "Length (ft)" and "From front (ft)" name the unit. */
 export type PackingRow = Record<string, string | number>
 
 export type UnloadedRow = { Cargo: string; Reason: string }
@@ -40,8 +39,7 @@ export function summaryRows(plan: PlanView, lengthUnit: LengthUnit = "cm"): Summ
     "Payload used (%)": round1(unit.weightPct),
     "Cargo volume (m³)": Math.round(unit.volumeM3 * 100) / 100,
     "Volume used (%)": round1(unit.volumePct),
-    "Actual floor utilization (%)": round1(unit.floorActualPct ?? unit.floorPct),
-    "Effective floor utilization (%)": round1(unit.floorEffectivePct ?? unit.floorPct),
+    "Floor utilization (%)": round1(unit.floorPct),
     "Remaining payload (kg)": Math.round(unit.remainingKg ?? unit.maxPayloadKg - unit.netKg),
     "Remaining volume (m³)": Math.round((unit.remainingM3 ?? 0) * 100) / 100,
     [`Used length (${LENGTH_UNIT_SYMBOL[lengthUnit]})`]: lengthUnit === "cm" ? Math.round(unit.usedLengthCm) : sizeIn(unit.usedLengthCm, lengthUnit),
@@ -64,24 +62,18 @@ export function packingRows(plan: PlanView, lengthUnit: LengthUnit = "cm"): Pack
       [`From floor (${symbol})`]: sizeIn(item.z, lengthUnit),
       Rotation: item.rotation,
       Facing: describeRotation(item.rotation),
-      Clearance: clearanceText(item.clearanceSetting ?? null, plan.clearanceCm),
     })),
   )
 }
 
 /** What the numbers mean, for the Excel Notes sheet and the printed report. */
-export function noteRows(plan: Pick<PlanView, "clearanceCm">, lengthUnit: LengthUnit = "cm"): { Topic: string; Note: string }[] {
+export function noteRows(lengthUnit: LengthUnit = "cm"): { Topic: string; Note: string }[] {
   return [
-    { Topic: "Actual floor utilization", Note: ACTUAL_FLOOR_HELP },
-    { Topic: "Effective floor utilization", Note: EFFECTIVE_FLOOR_HELP },
-    {
-      Topic: "Handling allowance",
-      Note: `${plan.clearanceCm > 0 ? `Project default ${plan.clearanceCm} cm per side. ` : "Project default none. "}${CLEARANCE_HELP}`,
-    },
+    { Topic: "Floor utilization", Note: FLOOR_HELP },
     { Topic: "Axle loads", Note: AXLE_ESTIMATE_NOTE },
     {
       Topic: "Units",
-      Note: `Sizes and positions are in ${LENGTH_UNIT_LABEL[lengthUnit]} (${LENGTH_UNIT_SYMBOL[lengthUnit]}); the column titles say so. Handling clearance is always in centimetres (cm). Weights are in kg and volumes in m³. Sizes are stored in centimetres and converted for this file only.`,
+      Note: `Sizes and positions are in ${LENGTH_UNIT_LABEL[lengthUnit]} (${LENGTH_UNIT_SYMBOL[lengthUnit]}); the column titles say so. Weights are in kg and volumes in m³. Sizes are stored in centimetres and converted for this file only.`,
     },
   ]
 }
@@ -100,12 +92,12 @@ export async function downloadPlanWorkbook(plan: PlanView, projectName: string, 
   const XLSX = await import("xlsx")
   const book = XLSX.utils.book_new()
   const summary = XLSX.utils.json_to_sheet(summaryRows(plan, lengthUnit))
-  summary["!cols"] = [{ wch: 6 }, { wch: 28 }, { wch: 8 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 26 }, { wch: 28 }, { wch: 22 }, { wch: 22 }, { wch: 16 }]
+  summary["!cols"] = [{ wch: 6 }, { wch: 28 }, { wch: 8 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 16 }]
   XLSX.utils.book_append_sheet(book, summary, "Summary")
   const packing = XLSX.utils.json_to_sheet(packingRows(plan, lengthUnit))
-  packing["!cols"] = [{ wch: 28 }, { wch: 10 }, { wch: 28 }, ...Array.from({ length: 7 }, () => ({ wch: 14 })), { wch: 10 }]
+  packing["!cols"] = [{ wch: 28 }, { wch: 10 }, { wch: 28 }, ...Array.from({ length: 7 }, () => ({ wch: 14 })), { wch: 10 }, { wch: 18 }]
   XLSX.utils.book_append_sheet(book, packing, "Packing list")
-  const notes = XLSX.utils.json_to_sheet(noteRows(plan, lengthUnit))
+  const notes = XLSX.utils.json_to_sheet(noteRows(lengthUnit))
   notes["!cols"] = [{ wch: 28 }, { wch: 110 }]
   XLSX.utils.book_append_sheet(book, notes, "Notes")
   const unloaded = unloadedRows(plan)

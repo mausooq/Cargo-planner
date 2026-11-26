@@ -128,10 +128,13 @@ describe("rotation and facing codes", () => {
     expect(pieceValues(placed({ rotation: "???" }), cargo)).toMatchObject({ lengthCm: 137.16, widthCm: 167.64, heightCm: 304.8, turned: false })
   })
 
-  it("stays correct after the Playground turns a piece, including a directional one", () => {
+  it("stays correct after the Playground turns a piece, including one an older plan saved with a half-turn facing", () => {
     const plain = rotateItemFlat(placed())
     expect(pieceValues(plain, cargo)).toMatchObject({ lengthCm: 137.16, widthCm: 167.64, turned: true })
-    let piece = placed({ clearance: { front: 5, rear: 0, left: 0, right: 0 } })
+    expect(pieceValues(rotateItemFlat(plain), cargo)).toMatchObject({ lengthCm: 137.16, widthCm: 167.64, turned: false })
+
+    // A piece saved as LWH@180 keeps the entered order and the Turned tag through every turn.
+    let piece = placed({ rotation: "LWH@180" })
     const seen: string[] = []
     for (let turn = 0; turn < 4; turn++) {
       piece = rotateItemFlat(piece)
@@ -139,7 +142,7 @@ describe("rotation and facing codes", () => {
       expect(values).toMatchObject({ lengthCm: 137.16, widthCm: 167.64, heightCm: 304.8 })
       seen.push(`${piece.rotation}:${values.turned}`)
     }
-    expect(seen).toEqual(["WLH:true", "LWH@180:true", "WLH@180:true", "LWH:false"])
+    expect(seen).toEqual(["WLH@180:true", "LWH:false", "WLH:true", "LWH:false"])
   })
 })
 

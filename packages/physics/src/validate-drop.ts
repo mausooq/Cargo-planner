@@ -1,6 +1,4 @@
-import { bodyAabb } from "./aabb"
 import { bodiesOverlap, cylinderRadius } from "./collision"
-import { boundaryShortfallCm, neighbourShortfallCm, type Clearance4, type PlanBox } from "./footprint"
 import { bodyInsideContainer } from "./inside"
 import { clamp, type Vec3 } from "./math"
 import { settleHeight } from "./settle"
@@ -12,7 +10,6 @@ export type DropReason =
   | "OK"
   | "OUTSIDE_CONTAINER"
   | "COLLISION"
-  | "CLEARANCE"
   | "NO_SUPPORT"
   | "UNSTABLE"
   | "OVERLOAD_BELOW"
@@ -48,10 +45,6 @@ export type DropPiece = PhysicsBody & {
   bottomOnly?: boolean
   maxStackLoadKg?: number | null
   maxLayers?: number | null
-  /** Free space to keep around the piece, per side, in cm. Handling clearance, not packaging. */
-  clearanceCm?: number | null
-  /** Free space per placed side (front, doors, left, right). Takes the place of `clearanceCm` when set. */
-  clearance?: Clearance4 | null
 }
 
 export type DropResult = {
@@ -103,11 +96,6 @@ export function validateDrop(
       position,
       details: { penetrationCm: options.toleranceCm },
     }
-  }
-
-  const clearance = clearanceProblem(settled as DropPiece, others, world)
-  if (clearance) {
-    return { valid: false, reason: "CLEARANCE", message: clearance.message, position, details: { shortfallCm: clearance.shortfallCm } }
   }
 
   const support = supportFrom(settled, others, world)
@@ -169,44 +157,6 @@ export function validateDrop(
     position,
     supportId: below?.id,
   }
-}
-
-function planBox(piece: DropPiece): PlanBox {
-  const box = bodyAabb(piece)
-  return {
-    id: piece.id,
-    x: box.min.x,
-    y: box.min.y,
-    z: box.min.z,
-    l: box.max.x - box.min.x,
-    w: box.max.y - box.min.y,
-    h: box.max.z - box.min.z,
-    clearanceCm: piece.clearanceCm,
-    clearance: piece.clearance,
-  }
-}
-
-/** First clearance rule the settled piece breaks, or null. Always null when no allowance is set. */
-function clearanceProblem(
-  moving: DropPiece,
-  others: DropPiece[],
-  world: PhysicsWorld,
-): { message: string; shortfallCm: number } | null {
-  const box = planBox(moving)
-  const wall = boundaryShortfallCm(box, world)
-  if (wall > 0) {
-    return { message: `Clearance reaches ${Math.ceil(wall)} cm past the wall`, shortfallCm: wall }
-  }
-  for (const other of others) {
-    const shortfall = neighbourShortfallCm(box, planBox(other))
-    if (shortfall > 0) {
-      return {
-        message: `Needs ${Math.ceil(shortfall)} cm more clearance from ${other.name ?? "another piece"}`,
-        shortfallCm: shortfall,
-      }
-    }
-  }
-  return null
 }
 
 function placeAt(body: DropPiece, minCorner: Vec3): DropPiece {

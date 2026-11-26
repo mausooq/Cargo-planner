@@ -39,41 +39,7 @@ export {
   DEFAULT_PHYSICS_SETTINGS,
 } from "./validate-drop"
 export type { DropReason, DropResult, DropPiece, PhysicsSettings } from "./validate-drop"
-export {
-  FLOOR_CONTACT_TOLERANCE_CM,
-  CLEARANCE_TOLERANCE_CM,
-  clearanceOf,
-  isOnFloor,
-  unionArea,
-  floorUtilization,
-  sharesHeight,
-  neighbourShortfallCm,
-  boundaryShortfallCm,
-  clearanceViolations,
-  sidesOf,
-  hasClearance,
-  envelopeRect,
-  NO_CLEARANCE,
-} from "./footprint"
-export type { PlanBox, FloorUnit, FloorUtilization, ClearanceViolation, Clearance4 } from "./footprint"
-export {
-  MAX_CLEARANCE_CM,
-  normaliseSides,
-  normaliseSetting,
-  uniformSides,
-  sidesAreUniform,
-  maxSide,
-  modeOf,
-  resolveSides,
-  sameSetting,
-  describeSetting,
-  describeSides,
-  parseRotation,
-  describeRotation,
-  flatRotationCode,
-  nextQuarterTurn,
-  placedSides,
-  isDirectional,
-  allowsHalfTurn,
-} from "./clearance-model"
-export type { SideClearance, ClearanceSetting, ClearanceMode, ParsedRotation } from "./clearance-model"
+export { FLOOR_CONTACT_TOLERANCE_CM, isOnFloor, unionArea, floorUtilization } from "./footprint"
+export type { PlanBox, FloorUnit, FloorUtilization } from "./footprint"
+export { parseRotation, describeRotation, flatRotationCode, nextQuarterTurn, nextFlatRotation, allowsHalfTurn } from "./rotation"
+export type { ParsedRotation } from "./rotation"

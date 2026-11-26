@@ -4,7 +4,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }))
 vi.mock("@/lib/session", () => ({ requireUser: vi.fn() }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    project: { findFirst: vi.fn() },
+    project: { findFirst: vi.fn(), update: vi.fn((args: unknown) => ({ kind: "project", args })) },
     equipmentInstance: { update: vi.fn((args: unknown) => ({ kind: "instance", args })) },
     placement: { updateMany: vi.fn((args: unknown) => ({ kind: "placement", args })) },
     plan: { update: vi.fn((args: unknown) => ({ kind: "plan", args })) },
@@ -66,13 +66,13 @@ function placement(cargoItemId: string, instanceIndex: number, x: number, y: num
 }
 
 /** One unit with two crates side by side. `settings` and `warnings` mimic what the solver saved. */
-function savedPlan(options: { clearanceCm?: number; warnings?: string[]; second?: [number, number, number] } = {}) {
+function savedPlan(options: { settings?: Record<string, unknown>; warnings?: string[]; second?: [number, number, number] } = {}) {
   const [x2, y2, z2] = options.second ?? [200, 0, 0]
   return {
     id: "plan1",
     createdAt: new Date("2026-11-01"),
     seed: 1,
-    settings: options.clearanceCm === undefined ? {} : { clearanceCm: options.clearanceCm },
+    settings: options.settings ?? {},
     summary: { totalCost: 0, elapsedMs: 5, restartsRun: 3, warnings: options.warnings ?? [] },
     unloaded: [],
     instances: [
@@ -93,8 +93,8 @@ function sentRow(cargoId: string, x: number, y: number, z: number, extra: Record
   return { cargoId, instanceIndex: 0, x, y, z, lengthCm: 100, widthCm: 100, heightCm: 100, rotation: "LWH", ...extra }
 }
 
-function mockProject(plan: ReturnType<typeof savedPlan>) {
-  db.project.findFirst.mockResolvedValue({ id: "p1", plans: [plan] } as never)
+function mockProject(plan: ReturnType<typeof savedPlan>, rules: Record<string, unknown> = {}) {
+  db.project.findFirst.mockResolvedValue({ id: "p1", rules, plans: [plan] } as never)
 }
 
 type Write = { kind: string; args: { where?: Record<string, unknown>; data: Record<string, unknown> } }
@@ -126,8 +126,6 @@ describe("savePlanLayout", () => {
       remainingM3: 28,
       // 2 pieces of 100 x 100 on a 500 x 240 floor, exact (no grid).
       floorPct: 16.7,
-      floorActualPct: 16.7,
-      floorEffectivePct: 16.7,
     })
     expect((metrics.cog as unknown as { x: number }).x).toBe(200)
     expect(Array.isArray(metrics.axleLoads)).toBe(true)
@@ -149,7 +147,7 @@ describe("savePlanLayout", () => {
     mockProject(savedPlan())
     await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 0, 0, 100)])
     const stacked = writesOf("instance")[0]!.args.data.metrics as Record<string, number>
-    expect(stacked.floorActualPct).toBe(8.3)
+    expect(stacked.floorPct).toBe(8.3)
     expect(stacked.volumeM3).toBe(2)
     expect(stacked.cog).toMatchObject({ z: 100 })
 
@@ -162,30 +160,28 @@ describe("savePlanLayout", () => {
     mockProject(plan)
     await savePlanLayout("p1", [sentRow("c1", 0, 0, 0, { lengthCm: 80, widthCm: 120, rotation: "WLH" }), sentRow("c2", 200, 0, 0)])
     const turned = writesOf("instance")[0]!.args.data.metrics as Record<string, number>
-    expect(turned.floorActualPct).toBe(16.3) // (80 x 120 + 100 x 100) / (500 x 240)
+    expect(turned.floorPct).toBe(16.3) // (80 x 120 + 100 x 100) / (500 x 240)
   })
 
-  it("stores the effective floor use with the project allowance, and a different one when positions change", async () => {
-    mockProject(savedPlan({ clearanceCm: 10 }))
+  it("stores one floor figure, the exact union of the footprints, and nothing else about floor use", async () => {
+    mockProject(savedPlan())
     await savePlanLayout("p1", [sentRow("c1", 10, 10, 0), sentRow("c2", 120, 10, 0)])
-    const near = writesOf("instance")[0]!.args.data.metrics as Record<string, number>
-    expect(near.floorActualPct).toBe(16.7)
-    expect(near.floorEffectivePct).toBe(23) // one merged 230 x 120 block: the 10 cm gap is shared, not counted twice
-
-    vi.clearAllMocks()
-    requireUserMock.mockResolvedValue(user() as never)
-    mockProject(savedPlan({ clearanceCm: 10 }))
-    await savePlanLayout("p1", [sentRow("c1", 10, 10, 0), sentRow("c2", 300, 100, 0)])
-    const apart = writesOf("instance")[0]!.args.data.metrics as Record<string, number>
-    expect(apart.floorEffectivePct).toBe(24) // two separate 120 x 120 blocks, nothing shared
+    const metrics = writesOf("instance")[0]!.args.data.metrics as Record<string, number>
+    expect(metrics.floorPct).toBe(16.7)
+    expect(Object.keys(metrics)).not.toContain("floorActualPct")
+    expect(Object.keys(metrics)).not.toContain("floorEffectivePct")
   })
 
-  it("refuses a layout that breaks the handling clearance and writes nothing", async () => {
-    mockProject(savedPlan({ clearanceCm: 10 }))
-    const result = await savePlanLayout("p1", [sentRow("c1", 10, 10, 0), sentRow("c2", 115, 10, 0)])
+  it("refuses pieces that overlap and writes nothing", async () => {
+    mockProject(savedPlan())
+    const result = await savePlanLayout("p1", [sentRow("c1", 10, 10, 0), sentRow("c2", 60, 10, 0)])
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.error).toMatch(/clearance/i)
     expect(db.$transaction).not.toHaveBeenCalled()
+  })
+
+  it("accepts pieces that touch, and never asks for a gap", async () => {
+    mockProject(savedPlan())
+    expect((await savePlanLayout("p1", [sentRow("c1", 10, 10, 0), sentRow("c2", 110, 10, 0)])).ok).toBe(true)
   })
 
   it("refuses a piece outside the unit, a floating piece and a forbidden turn", async () => {
@@ -247,7 +243,7 @@ describe("savePlanLayout", () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.units).toHaveLength(1)
-    expect(result.units[0]).toMatchObject({ unitIndex: 0, metrics: { floorActualPct: 16.7, remainingKg: 800 } })
+    expect(result.units[0]).toMatchObject({ unitIndex: 0, metrics: { floorPct: 16.7, remainingKg: 800 } })
   })
 
   it("lets only planners and admins save", async () => {
@@ -279,7 +275,7 @@ describe("savePlanLayout", () => {
   })
 
   it("reloading the saved plan shows the saved metrics, not the old ones", async () => {
-    const plan = savedPlan({ clearanceCm: 10 })
+    const plan = savedPlan()
     mockProject(plan)
     await savePlanLayout("p1", [sentRow("c1", 10, 10, 0), sentRow("c2", 120, 10, 0)])
     const saved = writesOf("instance")[0]!.args.data.metrics
@@ -295,11 +291,81 @@ describe("savePlanLayout", () => {
     }))
     const view = planFromDb(reloaded as never)
     const unit = view.units[0]!
-    expect(unit.floorActualPct).toBe(16.7)
-    expect(unit.floorEffectivePct).toBe(23)
     expect(unit.floorPct).toBe(16.7)
     expect(unit.remainingKg).toBe(800)
     expect(unit.items.map((item) => [item.x, item.y])).toEqual([[10, 10], [120, 10]])
     expect(unit.floorPct).not.toBe(99) // the stale value that was stored before the save
+  })
+
+  it("keeps whatever else the plan's settings hold, including data from earlier versions, untouched", async () => {
+    const settings = { clearanceCm: 12, clearanceConfig: { defaultCm: 12, lines: { c1: 4 } }, cargoSignature: "abc123", seed: 1, layoutSource: "AUTO" }
+    mockProject(savedPlan({ settings }))
+    const result = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 300, 50, 0)])
+    expect(result.ok).toBe(true)
+    const written = writesOf("plan")[0]!.args.data.settings as Record<string, unknown>
+    expect(written).toEqual({ ...settings, layoutSource: "MANUAL" })
+  })
+
+  it("saving never changes what a plan's saved signature says, so it is not marked out of date by saving", async () => {
+    mockProject(savedPlan({ settings: { cargoSignature: "keep-me" } }))
+    await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 300, 50, 0)])
+    expect((writesOf("plan")[0]!.args.data.settings as Record<string, unknown>).cargoSignature).toBe("keep-me")
+  })
+
+  it("marks the layout as hand-arranged when something moved, and keeps it that way afterwards", async () => {
+    mockProject(savedPlan())
+    const same = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 200, 0, 0)])
+    expect(same.ok && same.layoutSource).toBe("AUTO")
+
+    vi.clearAllMocks()
+    requireUserMock.mockResolvedValue(user() as never)
+    mockProject(savedPlan())
+    const moved = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 300, 0, 0)])
+    expect(moved.ok && moved.layoutSource).toBe("MANUAL")
+
+    vi.clearAllMocks()
+    requireUserMock.mockResolvedValue(user() as never)
+    mockProject(savedPlan({ settings: { layoutSource: "MANUAL" } }))
+    const stays = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 200, 0, 0)])
+    expect(stays.ok && stays.layoutSource).toBe("MANUAL")
+    expect((writesOf("plan")[0]!.args.data.settings as Record<string, unknown>).layoutSource).toBe("MANUAL")
+  })
+
+  it("stores a changed minimum support share in the project rules and keeps every other rule", async () => {
+    mockProject(savedPlan(), { clearanceCm: 9, other: true, minSupportPct: 75 })
+    const result = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 200, 0, 0)], { minSupportPct: 60 })
+    expect(result.ok).toBe(true)
+    const [project] = writesOf("project")
+    expect(project!.args.data.rules).toEqual({ clearanceCm: 9, other: true, minSupportPct: 60 })
+  })
+
+  it("does not touch the project when the support share did not change", async () => {
+    mockProject(savedPlan(), { minSupportPct: 75 })
+    await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 200, 0, 0)], { minSupportPct: 75 })
+    expect(writesOf("project")).toHaveLength(0)
+  })
+
+  it("judges stacking by the shared support share: the same overhang is refused at 90% and accepted at 50%", async () => {
+    const overhang = [sentRow("c1", 0, 0, 0), sentRow("c2", 50, 0, 100)]
+    mockProject(savedPlan())
+    expect((await savePlanLayout("p1", overhang, { minSupportPct: 90 })).ok).toBe(false)
+    vi.clearAllMocks()
+    requireUserMock.mockResolvedValue(user() as never)
+    mockProject(savedPlan())
+    expect((await savePlanLayout("p1", overhang, { minSupportPct: 50 })).ok).toBe(true)
+  })
+
+  it("accepts a saved plan whose pieces carry a half-turn code from an earlier version", async () => {
+    const plan = savedPlan()
+    plan.instances[0]!.placements[1] = placement("c2", 0, 200, 0, 0, { rotation: "LWH@180" })
+    mockProject(plan)
+    const result = await savePlanLayout("p1", [sentRow("c1", 0, 0, 0), sentRow("c2", 200, 0, 0, { rotation: "LWH@180" })])
+    expect(result.ok).toBe(true)
+    expect(writesOf("placement").map((row) => row.args.data.rotation)).toEqual(["LWH", "LWH@180"])
+  })
+
+  it("has no separate keep-my-layout path any more: only the Playground's save changes a layout", async () => {
+    const actions = await import("@/app/actions/plan")
+    expect(Object.keys(actions).sort()).toEqual(["persistPlan", "savePlanLayout"])
   })
 })

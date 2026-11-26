@@ -5,7 +5,6 @@ import {
   type PhysicsWorld,
   type Vec3,
 } from "@compass/physics"
-import { itemSides } from "@/lib/clearance"
 import type { PlanItemView, PlanUnitView } from "@/lib/plan-view"
 
 export function cylinderAxisOf(item: PlanItemView): CylinderAxis {
@@ -30,7 +29,6 @@ export function itemToPiece(item: PlanItemView): DropPiece {
     stackable: item.stackable,
     bottomOnly: item.bottomOnly,
     maxStackLoadKg: item.maxStackLoadKg,
-    clearance: itemSides(item),
   }
 }
 

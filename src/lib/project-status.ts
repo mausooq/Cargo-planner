@@ -13,7 +13,7 @@ export type ProjectStatus = {
 export function projectStatus(input: {
   cargoCount: number
   equipmentCount: number
-  /** `stale` is the project's own verdict (cargo or clearance changed since); without it only cargo edit times are compared. */
+  /** `stale` is the project's own verdict (its cargo changed since); without it only cargo edit times are compared. */
   plan: { createdAt: Date; unloadedCount: number; stale?: boolean } | null
   lastCargoChange: Date | null
 }): ProjectStatus {

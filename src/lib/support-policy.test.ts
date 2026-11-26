@@ -13,7 +13,7 @@ import { DEFAULT_SETTINGS, solve, type SolverCargo, type SolverEquipment } from 
 import { describe, expect, it } from "vitest"
 import { tryPlaceItem } from "@/lib/cargo-skin"
 import { findFreeSpot } from "@/lib/cargo-spot"
-import { MIN_SUPPORT_PCT, projectMinSupportPct } from "@/lib/clearance"
+import { MIN_SUPPORT_PCT, projectMinSupportPct } from "@/lib/support-policy"
 import { layoutProblems, DEFAULT_MIN_SUPPORT_RATIO, type LayoutCargoRules } from "@/lib/layout-validation"
 import type { PlanItemView, PlanUnitView } from "@/lib/plan-view"
 import { buildSolverInput } from "@/lib/solver-input"

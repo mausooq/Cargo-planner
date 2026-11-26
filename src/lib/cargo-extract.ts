@@ -1,6 +1,6 @@
 import { z } from "zod"
-import { blankLine, type ReviewLine, type ReviewSource, type DocumentTotals } from "@/lib/import-review"
-import { parseWeight, readNumber, splitCombinedSize } from "@/lib/import-units"
+import { blankLine, withOriginal, type ReviewLine, type ReviewSource, type DocumentTotals } from "@/lib/import-review"
+import { hasLengthUnit, parseWeight, readNumber, splitCombinedSize, splitNetGross } from "@/lib/import-units"
 import { LENGTH_UNITS } from "@/lib/cargo-units"
 
 /**
@@ -88,11 +88,15 @@ export const rawLineSchema = z.object({
   combinedSize: text.describe("When length, width and height are written together in one place (120 x 80 x 60 cm), that text exactly as written; the three separate fields are then null."),
   sizeUnit: z.enum(LENGTH_UNITS).nullable().describe("The unit the sizes are written in, only when the document states it for this line or its table (a column title counts). Null when no unit is stated."),
   quantity: text.describe("Number of identical packages on this line, exactly as written. Null if not given."),
-  weightPerPiece: text.describe("A weight that the document says is for ONE package or per piece, exactly as written. Null otherwise."),
-  lineWeight: text.describe("A weight that the document says is the TOTAL for this line (all its packages), exactly as written. Null otherwise."),
-  weightUnclear: text.describe("A weight on this line when the document does not make clear whether it is per piece or for the whole line. Null otherwise."),
+  grossWeight: text.describe("The gross weight, including packaging, as ONE number with its unit exactly as written (2360 or 2360 kg). Null if the document gives no gross weight. A net and a gross weight are always two separate fields: never put both in one value."),
+  netWeight: text.describe("The net weight, without packaging, as ONE number with its unit exactly as written. Null if the document gives none."),
+  weight: text.describe("A weight on this line that the document does not label as gross or net, as ONE number with its unit exactly as written. Null if there is none."),
+  weightScope: z
+    .enum(["per_piece", "line_total", "unclear"])
+    .nullable()
+    .describe("What the weights on this line are for. per_piece when the column title or text says per package, each or per unit. line_total when it says total or for the whole line. unclear when it does not say. Use the column title and the text around the weight. Null when the line has no weight."),
+  weightScopeEvidence: text.describe("The words that tell which, such as the column title 'Gross weight per package' or a short quote. Null if there are none."),
   weightUnit: z.enum(["kg", "g", "t", "lb"]).nullable().describe("The unit of the weights, only when the document states it. Null when not stated."),
-  weightKind: z.enum(["gross", "net"]).nullable().describe("Gross or net, only when the document says which. Null otherwise."),
   shape: z.enum(["BOX", "DRUM", "PIPE"]).nullable().describe("DRUM for a drum or barrel, PIPE for a pipe, tube or roll, BOX for anything else. Null if you cannot tell."),
   stackable: z.boolean().nullable().describe("false if the document says do not stack or not stackable; true only if it says stackable. Null if it says nothing."),
   floorOnly: z.boolean().nullable().describe("true only if the document says floor only or bottom only. Null if it says nothing."),
@@ -101,7 +105,6 @@ export const rawLineSchema = z.object({
   destination: text.describe("Destination, port or unloading stop for this line, exactly as written. Null if none."),
   hazardClass: text.describe("Dangerous goods or hazard class (for example UN number or class 3) ONLY if it is printed in the document. Never work it out from the goods. Null otherwise."),
   handling: text.describe("Handling instructions written for this line (fragile, keep dry, upright). Null if none."),
-  clearanceCm: z.number().nullable().describe("A handling clearance in centimetres ONLY if the document states one for this line. Null otherwise."),
   source: z.object({
     page: z.number().int().nullable().describe("Page number the line is on, when the document has pages."),
     row: text.describe("The row number or item number of the line as it is printed. Null if there is none."),
@@ -115,6 +118,10 @@ export const rawExtractionSchema = z.object({
   summary: z.string().describe("One sentence saying what the document is."),
   language: text.describe("The main language of the document, such as English, Arabic, French or Chinese."),
   lines: z.array(rawLineSchema),
+  tableSizeUnit: z
+    .enum(LENGTH_UNITS)
+    .nullable()
+    .describe("A size unit stated once for the whole table or document, in a column title or a note (for example 'Dimensions (mm)' or 'All sizes in cm'). Null if there is none. A unit stated for a single line belongs in that line's sizeUnit."),
   documentTotals: z
     .object({
       pieces: text.describe("Total number of packages the document states, exactly as written. Null if it states none."),
@@ -135,8 +142,8 @@ Rules
 - Never work out a hazard class, stackability, load-bearing capacity or handling rule yourself. Return those only when the document states them for that line.
 - One line is one kind of package (box, crate, pallet, drum, machine) with its outer size and weight. When the document lists packages one by one, return one line per package. When it gives one line for several identical packages, return one line with the quantity.
 - Do not return lines that are not packages: totals, subtotals, headings, notes, contents of a package that has its own size, or shipping costs. If the document states totals, put them in documentTotals.
-- Weights: say whether each is per piece (weightPerPiece), the total for the line (lineWeight), or unclear (weightUnclear). Do not divide or multiply. Do not spread a shipment total across lines. Say gross or net only when the document does.
-- Sizes: give length, width and height in the order the document gives them. If they are written together, return that text in combinedSize. Give sizeUnit only when the document states the unit.
+- Weights: put the gross weight (with packaging) in grossWeight and the net weight in netWeight, each as ONE number with its unit. NEVER join them in one value such as '2210 net / 2360 gross': that is two fields. A weight that is not labelled gross or net goes in weight. Set weightScope from the column title and the text around the weight: per_piece when it says per package, each or per unit; line_total when it says total or for the whole line; unclear when it does not say. Put the title or quote that tells in weightScopeEvidence. Do not divide or multiply. Do not spread a shipment total across lines.
+- Sizes: give length, width and height in the order the document gives them. If they are written together, return that text in combinedSize. Give sizeUnit only when the document states the unit for that line, and tableSizeUnit when it states one unit once for the whole table (a column title or a note). Keep the order the document gives, and do not decide which side is the height or how a package may be turned.
 - Keep descriptions and marks in the document's own language and script. Add descriptionEnglish when the document is not in English.
 - Each line has a source: the page it is on, its printed row or item number, and a short quote of its text. Do not make these up.
 - Long documents: return every line you can read from every page, and do not repeat a line that appears twice because pages overlap. If you could not read all of it, set complete to false and say what is missing in unreadable.
@@ -224,31 +231,40 @@ export function extractionToReview(raw: RawExtraction, origin: ExtractionOrigin,
       }
     }
 
+    // A unit stated once for the whole table covers the lines that do not state their own.
+    if (!line.sizeUnit && raw.tableSizeUnit && [line.length, line.width, line.height].some((part) => part && !hasLengthUnit(part))) {
+      line.sizeUnit = raw.tableSizeUnit
+      line.infoNotes.push(`Size unit (${raw.tableSizeUnit}) taken from the table heading.`)
+    }
+
     line.quantity = cleanText(item.quantity, 20)
 
-    const perPiece = cleanText(item.weightPerPiece, 40)
-    const lineTotal = cleanText(item.lineWeight, 40)
-    const unclear = cleanText(item.weightUnclear, 40)
-    if (perPiece) {
-      line.weight = perPiece
-      line.weightScope = "piece"
-    } else if (lineTotal) {
-      line.weight = lineTotal
-      line.weightScope = "line"
-    } else if (unclear) {
-      line.weight = unclear
-      line.weightScope = "unclear"
+    // Weights. The planning weight is the gross weight, with packaging; a net weight is kept as reference only.
+    let gross = cleanText(item.grossWeight, 60)
+    let net = cleanText(item.netWeight, 60)
+    let unlabelled = cleanText(item.weight, 60)
+    // A reading that still joins them ("2210 net / 2360 gross") is repaired here so that it does not block the line.
+    const joined = splitNetGross(gross) ?? splitNetGross(net) ?? splitNetGross(unlabelled)
+    if (joined) {
+      gross = joined.gross
+      net = joined.net
+      unlabelled = ""
+      line.infoNotes.push("The net and gross weights were written together and have been separated.")
     }
+    if (gross) {
+      line.weight = gross
+      line.weightKind = "gross"
+      line.netWeight = net
+    } else if (unlabelled) {
+      line.weight = unlabelled
+      line.netWeight = net
+    } else if (net) {
+      line.weight = net
+      line.weightKind = "net"
+    }
+    line.weightScope = item.weightScope === "per_piece" ? "piece" : item.weightScope === "line_total" ? "line" : "unclear"
+    line.weightEvidence = cleanText(item.weightScopeEvidence, 200)
     line.weightUnit = item.weightUnit
-    line.weightKind = item.weightKind ?? "unspecified"
-    if (perPiece && lineTotal) {
-      const each = parseWeight(perPiece, line.weightUnit)
-      const whole = parseWeight(lineTotal, line.weightUnit)
-      const count = readNumber(line.quantity)
-      if (each.ok && whole.ok && count && Math.abs(each.kg * count.value - whole.kg) > Math.max(0.5, whole.kg * 0.01)) {
-        line.checks.push(`Quantity × weight per piece is ${Math.round(each.kg * count.value * 100) / 100} kg, but the line total says ${whole.kg} kg.`)
-      }
-    }
 
     if (item.shape) line.shape = item.shape === "DRUM" ? "CYLINDER_DRUM" : item.shape
     line.stackable = item.stackable
@@ -268,8 +284,6 @@ export function extractionToReview(raw: RawExtraction, origin: ExtractionOrigin,
     if (instructions) handling.push(instructions)
     line.handling = handling.join(" · ")
 
-    if (item.clearanceCm !== null && Number.isFinite(item.clearanceCm)) line.clearance = String(item.clearanceCm)
-
     const source: ReviewSource = {}
     if (item.source.page !== null && item.source.page >= 1) source.page = item.source.page
     const row = cleanText(item.source.row, 20)
@@ -279,7 +293,7 @@ export function extractionToReview(raw: RawExtraction, origin: ExtractionOrigin,
     if (!source.quote) delete source.quote
     line.source = source
     line.modelNotes = item.uncertain.map((note) => cleanText(note, 300)).filter(Boolean)
-    return line
+    return withOriginal(line)
   })
 
   let documentTotals: DocumentTotals | null = null

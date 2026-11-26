@@ -6,7 +6,7 @@ import type { ExtractionProvider, ExtractionRequest } from "@/lib/extraction-pro
 
 // No test here calls the real API or sends any document anywhere: the client is a stand-in.
 
-const answer: RawExtraction = { summary: "A list.", language: "English", lines: [], documentTotals: null, warnings: [], unreadable: [], complete: true }
+const answer: RawExtraction = { summary: "A list.", language: "English", lines: [], documentTotals: null, warnings: [], unreadable: [], complete: true, tableSizeUnit: null }
 const textRequest: ExtractionRequest = { input: { kind: "text", text: "10 crates 120 x 80 x 60 cm 150 kg", label: "text" }, modeLabel: "sea" }
 
 type ParseArgs = { model: string; system: string; messages: { content: { type: string; text?: string; source?: unknown }[] }[] }

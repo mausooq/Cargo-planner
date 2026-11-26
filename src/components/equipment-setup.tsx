@@ -60,8 +60,6 @@ export const EquipmentSetup = forwardRef<
     projectMode: EquipmentMode
     cargo: CargoLine[]
     objective: "FEWEST_UNITS" | "LOWEST_COST"
-    /** Project default handling clearance per side, in cm. */
-    clearanceCm?: number
     /** The project's minimum support share, when it has one. */
     minSupportPct?: number | null
     /** Point the planner at the best-fit check as the step opens (used after importing a packing list). */
@@ -69,7 +67,7 @@ export const EquipmentSetup = forwardRef<
     onAutoSuggestStarted?: () => void
   }
 >(function EquipmentSetup(
-  { projectId, items, initial, canEdit, projectMode, cargo, objective, clearanceCm = 0, minSupportPct = null, autoSuggest = false, onAutoSuggestStarted },
+  { projectId, items, initial, canEdit, projectMode, cargo, objective, minSupportPct = null, autoSuggest = false, onAutoSuggestStarted },
   ref,
 ) {
   const router = useRouter()
@@ -205,7 +203,6 @@ export const EquipmentSetup = forwardRef<
           onAutoSuggestStarted?.()
         }}
         objective={objective}
-        clearanceCm={clearanceCm}
         minSupportPct={minSupportPct}
         canEdit={canEdit}
         selected={units}

@@ -55,9 +55,20 @@ describe("finding the cargo table in a customer's spreadsheet", () => {
     expect(skipped.map((row) => row.rowNumber)).toEqual([8, 10])
     expect(documentTotals).toEqual({ pieces: 7, weightKg: 1440 })
     const evaluations = lines.map(evaluateLine)
-    expect(evaluations.map((entry) => entry.status)).toEqual(["ready", "ready", "ready"])
+    // "Gross weight (kg)" does not say whether it is per piece or for the line, so rows with a quantity above one need a choice;
+    // the single-piece row does not, because it makes no difference there.
+    expect(evaluations.map((entry) => entry.status)).toEqual(["ambiguous", "ambiguous", "ready"])
+    expect(evaluations[0]!.issues.map((issue) => issue.code)).toEqual(["weight-scope"])
+    expect(lines.map((line) => line.weightKind)).toEqual(["gross", "gross", "gross"])
+    expect(lines[0]!.weightEvidence).toBe("Column “Gross weight (kg)”")
     expect(evaluations[2]!.sizesCm).toEqual([120, 80, 60])
-    expect(evaluations[0]!.input).toMatchObject({ lengthCm: 58, widthCm: 58, heightCm: 88, quantity: 4, weightKg: 210 })
+    // The number is kept as read, not assumed, until the planner says what it is for.
+    expect(evaluations[0]!.perPieceKg).toBeNull()
+    expect(lines[0]!.weight).toBe("210")
+    const each = evaluateLine({ ...lines[0]!, weightScope: "piece" })
+    expect(each.status).toBe("ready")
+    expect(each.input).toMatchObject({ lengthCm: 58, widthCm: 58, heightCm: 88, quantity: 4, weightKg: 210 })
+    expect(evaluateLine({ ...lines[0]!, weightScope: "line" }).input).toMatchObject({ weightKg: 52.5 })
     expect(lines[0]!.source).toMatchObject({ sheet: "Packing list", row: 5, cells: "A5:E5" })
   })
 
@@ -189,14 +200,14 @@ describe("a packing list with problems stays reviewable", () => {
     expect(sizes[1]).toBeCloseTo(167.64, 3)
   })
 
-  it("reads a line total weight only after the planner confirms the division", () => {
+  it("reads a line total weight as a total, and divides it without asking", () => {
     const rows: unknown[][] = [["Description", "Qty", "L", "W", "H", "Total weight"], ["Crates", 5, 10, 10, 10, 750]]
     const table = readWorkbook(book({ S: rows }), "s.xlsx").sheets[0]!.tables[0]!
     const { lines } = tableToReviewLines(table, { lengthUnit: "cm", weightUnit: "kg", columns: suggestMapping(table.headers) })
     const evaluation = evaluateLine(lines[0]!)
     expect(evaluation.perPieceKg).toBe(150)
-    expect(evaluation.status).toBe("ambiguous")
-    expect(evaluateLine({ ...lines[0]!, confirmed: [...lines[0]!.confirmed, "weight"] }).status).toBe("ready")
+    expect(evaluation.status).toBe("ready")
+    expect(evaluation.notes.map((entry) => entry.code)).toContain("weight-calculated")
   })
 })
 
@@ -232,3 +243,36 @@ function fakeZip(entries: { name: string; packed: number; unpacked: number }[]):
   push16(0)
   return new Uint8Array(parts)
 }
+
+describe("net and gross weights in a spreadsheet", () => {
+  const lines = (rows: unknown[][]) => {
+    const table = readWorkbook(book({ S: rows }), "s.xlsx").sheets[0]!.tables[0]!
+    return tableToReviewLines(table, { lengthUnit: "mm", weightUnit: "kg", columns: suggestMapping(table.headers) }).lines
+  }
+
+  it("separates a cell that holds both, so it is not an invalid number", () => {
+    const [line] = lines([["Description", "Qty", "L", "W", "H", "Gross weight"], ["Machine", 1, 1000, 1000, 1000, "2210 net / 2360 gross"]])
+    expect(line).toMatchObject({ weight: "2360", weightKind: "gross", netWeight: "2210" })
+    const evaluation = evaluateLine(line!)
+    expect(evaluation).toMatchObject({ status: "ready", perPieceKg: 2360 })
+    expect(evaluation.input).toMatchObject({ lengthCm: 100, weightKg: 2360 })
+  })
+
+  it("takes a Net weight column as reference and a Gross weight column for planning", () => {
+    const [line] = lines([["Description", "Qty", "L", "W", "H", "Net weight", "Gross weight"], ["Machine", 1, 1000, 1000, 1000, 2210, 2360]])
+    expect(line).toMatchObject({ weight: "2360", weightKind: "gross", netWeight: "2210" })
+    expect(evaluateLine(line!).input?.weightKg).toBe(2360)
+  })
+
+  it("a gross weight column with a quantity above one needs a choice; a per-package column does not", () => {
+    const [unclear] = lines([["Description", "Qty", "L", "W", "H", "Gross weight"], ["Machine", 2, 1000, 1000, 1000, 2360]])
+    expect(evaluateLine(unclear!).status).toBe("ambiguous")
+    const [each] = lines([["Description", "Qty", "L", "W", "H", "Gross weight per package"], ["Machine", 2, 1000, 1000, 1000, 2360]])
+    expect(evaluateLine(each!)).toMatchObject({ status: "ready", perPieceKg: 2360 })
+  })
+
+  it("the plain Weight column of the Compass template stays per piece", () => {
+    const [line] = lines([["Description", "Qty", "L", "W", "H", "Weight"], ["Crate", 5, 100, 100, 100, 20]])
+    expect(evaluateLine(line!)).toMatchObject({ status: "ready", perPieceKg: 20, lineKg: 100 })
+  })
+})

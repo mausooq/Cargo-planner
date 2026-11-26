@@ -1,4 +1,3 @@
-import { itemSides } from "@/lib/clearance"
 import type { PlanItemView, PlanUnitView } from "@/lib/plan-view"
 
 export type SnapAxes = { x: boolean; y: boolean }
@@ -113,20 +112,17 @@ export function snapToNeighbours(
   let x = item.x
   let y = item.y
   const hits: string[] = []
-  // Handling clearance: a wall keeps the piece's own allowance free, and two neighbours keep the larger of their allowances. With none set these are all 0 and snapping is flush, as before.
-  const own = itemSides(item)
-  const sidesOf = (other: PlanItemView) => itemSides(other)
 
   if (axes.x) {
     const row = others.filter((other) => sameLevel(other) && spansOverlap(item.y, item.y + item.widthCm, other.y, other.y + other.widthCm))
     const hit = nearest(
       item.x,
       [
-        { value: own.x0, against: "the wall" },
-        { value: unit.lengthCm - item.lengthCm - own.x1, against: "the doors" },
+        { value: 0, against: "the wall" },
+        { value: unit.lengthCm - item.lengthCm, against: "the doors" },
         ...row.flatMap((other) => [
-          { value: other.x + other.lengthCm + Math.max(own.x0, sidesOf(other).x1), against: other.name },
-          { value: other.x - item.lengthCm - Math.max(own.x1, sidesOf(other).x0), against: other.name },
+          { value: other.x + other.lengthCm, against: other.name },
+          { value: other.x - item.lengthCm, against: other.name },
         ]),
       ],
       sideReach(item.lengthCm),
@@ -141,11 +137,11 @@ export function snapToNeighbours(
     const hit = nearest(
       item.y,
       [
-        { value: own.y0, against: "the wall" },
-        { value: unit.widthCm - item.widthCm - own.y1, against: "the wall" },
+        { value: 0, against: "the wall" },
+        { value: unit.widthCm - item.widthCm, against: "the wall" },
         ...column.flatMap((other) => [
-          { value: other.y + other.widthCm + Math.max(own.y0, sidesOf(other).y1), against: other.name },
-          { value: other.y - item.widthCm - Math.max(own.y1, sidesOf(other).y0), against: other.name },
+          { value: other.y + other.widthCm, against: other.name },
+          { value: other.y - item.widthCm, against: other.name },
         ]),
       ],
       sideReach(item.widthCm),

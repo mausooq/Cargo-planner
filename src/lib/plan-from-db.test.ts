@@ -52,12 +52,34 @@ function dbPlan(metrics: Record<string, unknown>, extra: { settings?: unknown; p
 describe("planFromDb backward compatibility", () => {
   // What the solver stored before the two floor metrics existed: a single `floorPct`, no `settings`.
   const legacyMetrics = { netKg: 200, grossKg: 4100, volumeM3: 1.6, volumePct: 2, floorPct: 13.8, weightPct: 0.8, axleLoads: [] }
+  // Two 117 x 77 pieces on the floor of a 1203 x 235 unit, to the tenth of a percent.
+  const exactFloor = Math.round(((2 * 117 * 77) / (1203 * 235)) * 1000) / 10
 
-  it("reads a plan saved before this feature: both floor figures equal the old floorPct", () => {
-    const unit = planFromDb(dbPlan(legacyMetrics) as never).units[0]!
-    expect(unit.floorActualPct).toBe(13.8)
-    expect(unit.floorEffectivePct).toBe(13.8)
-    expect(unit.floorPct).toBe(13.8)
+  it("works the floor figure out from the saved positions, not from what was stored", () => {
+    expect(exactFloor).toBe(6.4)
+    // A stored figure that was rounded on a grid, wrongly high, is not trusted.
+    expect(planFromDb(dbPlan(legacyMetrics) as never).units[0]!.floorPct).toBe(exactFloor)
+    // Nor is one that is simply different.
+    expect(planFromDb(dbPlan({ ...legacyMetrics, floorPct: 99 }) as never).units[0]!.floorPct).toBe(exactFloor)
+  })
+
+  it("has one floor figure: the effective and actual figures an earlier version stored are not carried", () => {
+    const saved = { ...legacyMetrics, floorPct: 13.8, floorActualPct: 13.8, floorEffectivePct: 16.1 }
+    const unit = planFromDb(dbPlan(saved) as never).units[0]!
+    expect(unit.floorPct).toBe(exactFloor)
+    expect(Object.keys(unit)).not.toContain("floorActualPct")
+    expect(Object.keys(unit)).not.toContain("floorEffectivePct")
+  })
+
+  it("counts only pieces standing on the floor, and overlaps once", () => {
+    const placements = [row("c1", 0, 0), row("c2", 0, 0, { zCm: 90 }), row("c3", 0, 58.5)]
+    const unit = planFromDb(dbPlan(legacyMetrics, { placements }) as never).units[0]!
+    // c1 covers 0..117, c3 covers 58.5..175.5: a union of 175.5 x 77.
+    expect(unit.floorPct).toBe(Math.round(((175.5 * 77) / (1203 * 235)) * 1000) / 10)
+  })
+
+  it("shows no floor use for a plan with no pieces", () => {
+    expect(planFromDb(dbPlan({ ...legacyMetrics, floorPct: 50 }, { placements: [] }) as never).units[0]!.floorPct).toBe(0)
   })
 
   it("fills remaining capacity and tare for an old plan from the equipment limits", () => {
@@ -67,49 +89,46 @@ describe("planFromDb backward compatibility", () => {
     expect(unit.tareKg).toBe(3900)
   })
 
-  it("treats a missing or empty settings value as no allowance, for the plan and every piece", () => {
-    for (const settings of [undefined, null, {}, { clearanceCm: "bad" }]) {
-      const plan = planFromDb(dbPlan(legacyMetrics, { settings }) as never)
-      expect(plan.clearanceCm).toBe(0)
-      expect(plan.units[0]!.items.every((item) => item.clearanceCm === 0)).toBe(true)
-    }
-  })
-
   it("still reads a plan with no maxStackLoadKg or customFields on its cargo", () => {
     const unit = planFromDb(dbPlan(legacyMetrics) as never).units[0]!
     expect(unit.items).toHaveLength(2)
     expect(unit.items[0]).toMatchObject({ stackable: true, bottomOnly: false, maxStackLoadKg: null })
   })
 
-  it("reads new metrics as saved", () => {
-    const metrics = { ...legacyMetrics, floorPct: 13.8, floorActualPct: 13.8, floorEffectivePct: 16.1, remainingKg: 25800, remainingM3: 80.1 }
-    const unit = planFromDb(dbPlan(metrics, { settings: { clearanceCm: 5 } }) as never).units[0]!
-    expect(unit.floorActualPct).toBe(13.8)
-    expect(unit.floorEffectivePct).toBe(16.1)
-    expect(unit.remainingKg).toBe(25800)
+  it("reads saved remaining capacity as saved", () => {
+    const unit = planFromDb(dbPlan({ ...legacyMetrics, remainingKg: 25700, remainingM3: 80.1 }) as never).units[0]!
+    expect(unit.remainingKg).toBe(25700)
     expect(unit.remainingM3).toBe(80.1)
   })
 
-  it("prefers the new actual figure over a stale floorPct", () => {
-    const unit = planFromDb(dbPlan({ ...legacyMetrics, floorPct: 99, floorActualPct: 13.8 }) as never).units[0]!
-    expect(unit.floorPct).toBe(13.8)
-  })
-
-  it("uses the plan's saved project allowance, and a cargo line's own override first", () => {
+  it("ignores clearance settings an earlier version kept on the plan and on its cargo", () => {
     const placements = [
-      row("c1", 0, 0),
-      row("c2", 0, 117, {}, { customFields: { clearanceCm: 3 } }),
-      row("c3", 0, 234, {}, { customFields: { clearanceCm: 0 } }),
-      row("c4", 0, 351, {}, { customFields: { allowedRotations: "LWH,WLH" } }),
+      row("c1", 0, 0, {}, { customFields: { clearanceCm: 3 } }),
+      row("c2", 0, 117, {}, { customFields: { clearanceSides: { front: 5, rear: 0, left: 0, right: 0 } } }),
+      row("c3", 0, 234, {}, { customFields: { clearanceCm: -4 } }),
+      row("c4", 0, 351, {}, { customFields: "text" }),
     ]
-    const plan = planFromDb(dbPlan(legacyMetrics, { settings: { clearanceCm: 8 }, placements }) as never)
-    expect(plan.clearanceCm).toBe(8)
-    expect(plan.units[0]!.items.map((item) => item.clearanceCm)).toEqual([8, 3, 0, 8])
+    const settings = { clearanceCm: 8, clearanceConfig: { defaultCm: 8, lines: { c1: 3 } }, layoutSource: "AUTO" }
+    const plan = planFromDb(dbPlan(legacyMetrics, { settings, placements }) as never)
+    expect(plan.units[0]!.items).toHaveLength(4)
+    expect(JSON.stringify(plan)).not.toMatch(/clearance/i)
+    // The positions are exactly what was saved.
+    expect(plan.units[0]!.items.map((item) => item.x)).toEqual([0, 117, 234, 351])
   })
 
-  it("ignores nonsense overrides instead of failing", () => {
-    const placements = [row("c1", 0, 0, {}, { customFields: { clearanceCm: -4 } }), row("c2", 0, 117, {}, { customFields: "text" })]
-    const plan = planFromDb(dbPlan(legacyMetrics, { settings: { clearanceCm: 2 }, placements }) as never)
-    expect(plan.units[0]!.items.map((item) => item.clearanceCm)).toEqual([2, 2])
+  it("still lists a piece an earlier version left out because of its clearance, with the explanation it saved", () => {
+    const plan = {
+      ...dbPlan(legacyMetrics),
+      unloaded: [{ cargoItemId: "c9", reasonCode: "CLEARANCE", reasonDetail: "Crate fits a unit, but not with its handling clearance (up to 10 cm on a side).", cargoItem: { name: "Crate" } }],
+    }
+    const view = planFromDb(plan as never)
+    expect(view.unloaded).toEqual([{ cargoId: "c9", name: "Crate", reason: "CLEARANCE", detail: "Crate fits a unit, but not with its handling clearance (up to 10 cm on a side)." }])
+  })
+
+  it("treats missing or nonsense settings as an automatic layout", () => {
+    for (const settings of [undefined, null, {}, { layoutSource: "?" }, { clearanceCm: "bad" }]) {
+      expect(planFromDb(dbPlan(legacyMetrics, { settings }) as never).layoutSource).toBe("AUTO")
+    }
+    expect(planFromDb(dbPlan(legacyMetrics, { settings: { layoutSource: "MANUAL" } }) as never).layoutSource).toBe("MANUAL")
   })
 })

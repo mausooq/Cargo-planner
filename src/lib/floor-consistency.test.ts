@@ -1,4 +1,4 @@
-import { clearanceViolations, floorUtilization } from "@compass/physics"
+import { floorUtilization } from "@compass/physics"
 import { solve, type SolverCargo, type SolverEquipment, type SolverResult } from "@compass/solver"
 import { describe, expect, it } from "vitest"
 import { applyGravity } from "@/lib/cargo-gravity"
@@ -76,7 +76,6 @@ function planOf(result: SolverResult, cargo: SolverCargo[]): PlanView {
       shape: item.shape,
       stackable: item.stackable,
       bottomOnly: item.bottomOnly,
-      clearanceCm: item.clearanceCm ?? null,
     })),
   )
 }
@@ -99,10 +98,10 @@ function legacyGridFloorPct(items: PlanItemView[], unit: { lengthCm: number; wid
 }
 
 /** What the database would hold for this plan after it was saved. */
-function asSaved(plan: PlanView, cargo: SolverCargo[], clearanceCm: number) {
+function asSaved(plan: PlanView, cargo: SolverCargo[], extraMetrics: Record<string, unknown> = {}, settings: Record<string, unknown> = {}) {
   return {
     seed: 1,
-    settings: { clearanceCm },
+    settings,
     summary: { totalCost: 0, elapsedMs: 1, warnings: plan.warnings },
     unloaded: [],
     instances: plan.units.map((unit, index) => ({
@@ -114,8 +113,6 @@ function asSaved(plan: PlanView, cargo: SolverCargo[], clearanceCm: number) {
         volumeM3: unit.volumeM3,
         volumePct: unit.volumePct,
         floorPct: unit.floorPct,
-        floorActualPct: unit.floorActualPct,
-        floorEffectivePct: unit.floorEffectivePct,
         weightPct: unit.weightPct,
         remainingKg: unit.remainingKg,
         remainingM3: unit.remainingM3,
@@ -125,6 +122,7 @@ function asSaved(plan: PlanView, cargo: SolverCargo[], clearanceCm: number) {
         cog: unit.cog,
         axleLoads: unit.axleLoads,
         pieces: unit.pieces,
+        ...extraMetrics,
       },
       equipmentType: {
         id: container.id,
@@ -160,7 +158,6 @@ function asSaved(plan: PlanView, cargo: SolverCargo[], clearanceCm: number) {
             stackable: source.stackable,
             bottomOnly: source.bottomOnly,
             maxStackLoadKg: null,
-            customFields: source.clearanceCm == null ? null : { clearanceCm: source.clearanceCm },
           },
         }
       }),
@@ -186,16 +183,16 @@ describe("no-grid regression (the 13.8% vs 15.8% mismatch)", () => {
       line({ id: "pipe", shape: "PIPE", lengthCm: 237.5, widthCm: 21, heightCm: 21, weightKg: 60, quantity: 2 }),
     ]
     const lightUnit = planOf(solve({ equipment: [container], cargo: light, settings: { restarts: 3 } }), light).units[0]!
-    const exactPct = floorUtilization(metricBoxesOf(lightUnit.items), lightUnit).actualPct
+    const exactPct = floorUtilization(metricBoxesOf(lightUnit.items), lightUnit).pct
     const oldPct = legacyGridFloorPct(lightUnit.items, lightUnit)
     expect(exactPct).toBeLessThan(40)
     expect(Math.abs(oldPct - exactPct)).toBeGreaterThan(0.3)
-    expect(liveMetrics(lightUnit.items, lightUnit).floorActualPct).toBe(Math.round(exactPct * 10) / 10)
-    expect(liveMetrics(lightUnit.items, lightUnit).floorActualPct).toBe(lightUnit.floorActualPct)
+    expect(liveMetrics(lightUnit.items, lightUnit).floorPct).toBe(Math.round(exactPct * 10) / 10)
+    expect(liveMetrics(lightUnit.items, lightUnit).floorPct).toBe(lightUnit.floorPct)
   })
 
   it("agrees with the solver figure for the dense shipment too", () => {
-    expect(liveMetrics(unit.items, unit).floorActualPct).toBe(unit.floorActualPct)
+    expect(liveMetrics(unit.items, unit).floorPct).toBe(unit.floorPct)
   })
 
   it("is exact for the simple three-piece case that showed the effect", () => {
@@ -219,66 +216,94 @@ describe("no-grid regression (the 13.8% vs 15.8% mismatch)", () => {
     )
     const exact = ((3 * 117 * 77) / (1203 * 235)) * 100
     expect(legacyGridFloorPct(three, container)).toBeGreaterThan(exact)
-    expect(liveMetrics(three, container).floorActualPct).toBe(Math.round(exact * 10) / 10)
+    expect(liveMetrics(three, container).floorPct).toBe(Math.round(exact * 10) / 10)
   })
 
   it("does not depend on where a piece sits relative to a grid", () => {
     const base = unit.items.filter((item) => item.z <= 0.5).slice(0, 6)
     const shifted = base.map((item) => ({ ...item, x: item.x + 0.37, y: item.y + 0.11 }))
-    const a = liveMetrics(base, unit).floorActualPct
-    const b = liveMetrics(shifted, unit).floorActualPct
+    const a = liveMetrics(base, unit).floorPct
+    const b = liveMetrics(shifted, unit).floorPct
     expect(Math.abs(a - b)).toBeLessThanOrEqual(0.1)
   })
 })
 
 describe("one layout, the same numbers on every screen", () => {
-  for (const clearanceCm of [0, 4]) {
-    describe(`allowance ${clearanceCm} cm`, () => {
-      const cargo = shipment.map((item) => ({ ...item, quantity: Math.ceil(item.quantity / 2) }))
-      const result = solve({ equipment: [container], cargo, settings: { restarts: 3, timeLimitMs: 2000, clearanceCm } })
-      const plan = planOf(result, cargo)
-      const unit = plan.units[0]!
+  const cargo = shipment.map((item) => ({ ...item, quantity: Math.ceil(item.quantity / 2) }))
+  const result = solve({ equipment: [container], cargo, settings: { restarts: 3, timeLimitMs: 2000 } })
+  const plan = planOf(result, cargo)
+  const unit = plan.units[0]!
 
-      it("Calculate table, Load Plan header, Playground and Excel agree", () => {
-        const live = liveMetrics(unit.items, unit)
-        const row = summaryRows(plan)[0]!
-        expect(live.floorActualPct).toBe(unit.floorActualPct)
-        expect(live.floorEffectivePct).toBe(unit.floorEffectivePct)
-        expect(row["Actual floor utilization (%)"]).toBe(unit.floorActualPct)
-        expect(row["Effective floor utilization (%)"]).toBe(unit.floorEffectivePct)
-        expect(live.remainingKg).toBe(unit.remainingKg)
-        expect(live.remainingM3).toBeCloseTo(unit.remainingM3, 3)
-        expect(live.netKg).toBe(unit.netKg)
-        expect(live.volumePct).toBe(unit.volumePct)
-        expect(live.weightPct).toBe(unit.weightPct)
-      })
+  it("Calculate table, Load Plan header, Playground and Excel agree", () => {
+    const live = liveMetrics(unit.items, unit)
+    const row = summaryRows(plan)[0]!
+    expect(live.floorPct).toBe(unit.floorPct)
+    expect(row["Floor utilization (%)"]).toBe(unit.floorPct)
+    expect(live.remainingKg).toBe(unit.remainingKg)
+    expect(live.remainingM3).toBeCloseTo(unit.remainingM3, 3)
+    expect(live.netKg).toBe(unit.netKg)
+    expect(live.volumePct).toBe(unit.volumePct)
+    expect(live.weightPct).toBe(unit.weightPct)
+  })
 
-      it("the effective figure is never below the actual one, and equal with no allowance", () => {
-        expect(unit.floorEffectivePct).toBeGreaterThanOrEqual(unit.floorActualPct)
-        if (clearanceCm === 0) expect(unit.floorEffectivePct).toBe(unit.floorActualPct)
-        else expect(unit.floorEffectivePct).toBeGreaterThan(unit.floorActualPct)
-      })
+  it("there is one floor figure, and no second one", () => {
+    expect(Object.keys(unit)).not.toContain("floorEffectivePct")
+    expect(Object.keys(unit)).not.toContain("floorActualPct")
+    expect(Object.keys(summaryRows(plan)[0]!).filter((key) => /floor/i.test(key))).toEqual(["Floor utilization (%)"])
+  })
 
-      it("the solver layout keeps the allowance", () => {
-        expect(result.unloaded).toEqual([])
-        expect(clearanceViolations(metricBoxesOf(unit.items), container)).toEqual([])
-        expect(liveMetrics(unit.items, unit).warnings.join(" ")).not.toMatch(/clearance/)
-      })
+  it("packs everything and leaves nothing colliding", () => {
+    expect(result.unloaded).toEqual([])
+  })
 
-      it("a saved and reloaded plan shows the same figures", () => {
-        const reloaded = planFromDb(asSaved(plan, cargo, clearanceCm) as never).units[0]!
-        expect(reloaded.floorActualPct).toBe(unit.floorActualPct)
-        expect(reloaded.floorEffectivePct).toBe(unit.floorEffectivePct)
-        expect(reloaded.remainingKg).toBe(unit.remainingKg)
-        expect(liveMetrics(reloaded.items, reloaded).floorEffectivePct).toBe(unit.floorEffectivePct)
-      })
-    })
-  }
+  it("a saved and reloaded plan shows the same figures", () => {
+    const reloaded = planFromDb(asSaved(plan, cargo) as never).units[0]!
+    expect(reloaded.floorPct).toBe(unit.floorPct)
+    expect(reloaded.remainingKg).toBe(unit.remainingKg)
+    expect(liveMetrics(reloaded.items, reloaded).floorPct).toBe(unit.floorPct)
+  })
+})
+
+describe("plans saved by earlier versions", () => {
+  const cargo = [line({ id: "a", quantity: 6 }), line({ id: "b", lengthCm: 83.3, widthCm: 41.7, heightCm: 61.4, quantity: 5 })]
+  const plan = planOf(solve({ equipment: [container], cargo, settings: { restarts: 2 } }), cargo)
+  const exact = plan.units[0]!.floorPct
+
+  it("shows the exact floor figure from the saved positions, whatever figure was stored", () => {
+    // A plan from before the exact calculation stored a grid-rounded figure.
+    const gridRounded = planFromDb(asSaved(plan, cargo, { floorPct: 99.9 }) as never).units[0]!
+    expect(gridRounded.floorPct).toBe(exact)
+    // A plan from the clearance versions also stored an actual and an effective figure.
+    const withEffective = planFromDb(asSaved(plan, cargo, { floorPct: exact, floorActualPct: exact, floorEffectivePct: exact + 12 }) as never).units[0]!
+    expect(withEffective.floorPct).toBe(exact)
+    expect(Object.keys(withEffective)).not.toContain("floorEffectivePct")
+  })
+
+  it("opens a plan that still carries clearance settings, and ignores them", () => {
+    const saved = asSaved(plan, cargo, { floorEffectivePct: 70 }, { clearanceCm: 12, clearanceConfig: { defaultCm: 12, lines: { a: 5 } }, layoutSource: "MANUAL", cargoSignature: "abc" })
+    const reloaded = planFromDb(saved as never)
+    expect(reloaded.units[0]!.floorPct).toBe(exact)
+    expect(reloaded.layoutSource).toBe("MANUAL")
+    expect(reloaded.units[0]!.items).toHaveLength(plan.units[0]!.items.length)
+    expect(JSON.stringify(reloaded)).not.toMatch(/clearance/i)
+  })
+
+  it("keeps the saved positions and turns exactly as they were", () => {
+    const reloaded = planFromDb(asSaved(plan, cargo) as never).units[0]!
+    expect(reloaded.items.map((item) => [item.x, item.y, item.z, item.lengthCm, item.widthCm, item.heightCm, item.rotation])).toEqual(
+      plan.units[0]!.items.map((item) => [item.x, item.y, item.z, item.lengthCm, item.widthCm, item.heightCm, item.rotation]),
+    )
+  })
+
+  it("a plan with no pieces shows no floor use", () => {
+    const empty = asSaved({ ...plan, units: [{ ...plan.units[0]!, items: [], pieces: 0 }] }, cargo, { floorPct: 55 })
+    expect(planFromDb(empty as never).units[0]!.floorPct).toBe(0)
+  })
 })
 
 describe("live metrics follow manual changes", () => {
   const cargo = [line({ id: "a", quantity: 6, weightKg: 150 })]
-  const result = solve({ equipment: [container], cargo, settings: { restarts: 2, clearanceCm: 5 } })
+  const result = solve({ equipment: [container], cargo, settings: { restarts: 2 } })
   const unit = planOf(result, cargo).units[0]!
 
   it("recomputes from the items alone, so undo and reset give back the earlier numbers", () => {
@@ -299,7 +324,7 @@ describe("live metrics follow manual changes", () => {
     expect(removed.netKg).toBeCloseTo(full.netKg - 150, 6)
     expect(removed.remainingKg).toBeCloseTo(full.remainingKg + 150, 6)
     expect(removed.remainingM3).toBeGreaterThan(full.remainingM3)
-    expect(removed.floorActualPct).toBeLessThanOrEqual(full.floorActualPct)
+    expect(removed.floorPct).toBeLessThanOrEqual(full.floorPct)
     expect(liveMetrics([], unit).netKg).toBe(0)
   })
 
@@ -307,26 +332,17 @@ describe("live metrics follow manual changes", () => {
     const full = liveMetrics(unit.items, unit)
     const without = liveMetrics(unit.items.slice(1), unit, 1)
     const back = liveMetrics(unit.items, unit, 0)
-    expect(without.floorActualPct).not.toBe(full.floorActualPct)
+    expect(without.floorPct).not.toBe(full.floorPct)
     expect(back).toEqual(full)
-  })
-
-  it("moving a piece closer than the allowance raises a clearance warning", () => {
-    const [first, second] = unit.items.filter((item) => item.z <= 0.5)
-    const squeezed = unit.items.map((item) => (item.id === second!.id ? { ...item, x: first!.x + first!.lengthCm + 1, y: first!.y } : item))
-    const live = liveMetrics(squeezed, unit)
-    expect(live.warnings.some((entry) => /break the handling clearance/.test(entry))).toBe(true)
   })
 
   it("gravity after a move does not change the footprint figures of pieces that stay on the floor", () => {
     const settled = applyGravity(unit.items, unit).items
-    expect(liveMetrics(settled, unit).floorActualPct).toBe(liveMetrics(unit.items, unit).floorActualPct)
+    expect(liveMetrics(settled, unit).floorPct).toBe(liveMetrics(unit.items, unit).floorPct)
   })
 
   it("applying server metrics to a unit keeps the screen in step", () => {
-    const next: PlanUnitView = withMetrics(unit, { ...result.units[0]!.metrics, floorActualPct: 40, floorEffectivePct: 50, floorPct: 40, remainingKg: 12 })
-    expect(next.floorActualPct).toBe(40)
-    expect(next.floorEffectivePct).toBe(50)
+    const next: PlanUnitView = withMetrics(unit, { ...result.units[0]!.metrics, floorPct: 40, remainingKg: 12 })
     expect(next.floorPct).toBe(40)
     expect(next.remainingKg).toBe(12)
     expect(next.items).toBe(unit.items)

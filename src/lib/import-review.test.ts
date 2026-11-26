@@ -31,12 +31,12 @@ describe("a complete line", () => {
     expect(input.stackable).toBe(true)
     expect(input.destinationStop).toBe(1)
     expect(input.consignmentId).toBeNull()
-    expect(input.clearanceCm).toBeUndefined()
+    expect(Object.keys(input)).not.toContain("clearanceCm")
   })
 
   it("applies only what the document stated", () => {
-    const input = evaluateLine(line({ stackable: false, floorOnly: true, orientation: "FIXED", consignment: "PO-9", destination: "2", hazard: "Class 3", clearance: "5" })).input!
-    expect(input).toMatchObject({ stackable: false, bottomOnly: true, orientation: "FIXED", consignmentId: "PO-9", destinationStop: 2, segregationClass: "Class 3", clearanceCm: 5 })
+    const input = evaluateLine(line({ stackable: false, floorOnly: true, orientation: "FIXED", consignment: "PO-9", destination: "2", hazard: "Class 3" })).input!
+    expect(input).toMatchObject({ stackable: false, bottomOnly: true, orientation: "FIXED", consignmentId: "PO-9", destinationStop: 2, segregationClass: "Class 3" })
   })
 
   it("uses the mark as the name when there is no description", () => {
@@ -63,8 +63,11 @@ describe("missing and invalid values are flagged, never filled in", () => {
   it("asks for the unit when the document does not state one", () => {
     const evaluation = evaluateLine(line({ sizeUnit: null }))
     expect(evaluation.status).toBe("ambiguous")
-    expect(evaluation.issues).toEqual([expect.objectContaining({ field: "sizeUnit", kind: "ambiguous" })])
+    expect(evaluation.issues).toContainEqual(expect.objectContaining({ field: "sizeUnit", kind: "ambiguous", code: "size-unit" }))
+    expect(evaluation.issues.every((issue) => issue.code === "size-unit")).toBe(true)
     expect(evaluation.input).toBeNull()
+    // The numbers that were read are still there, untouched.
+    expect([evaluation.sizesCm]).toEqual([null])
   })
 
   it("asks for the weight unit when it is not stated", () => {
@@ -93,19 +96,15 @@ describe("sizes in feet and inches", () => {
 })
 
 describe("weight per piece, line total and net weight", () => {
-  it("works out a per-piece weight from a line total only after confirmation", () => {
-    const unconfirmed = evaluateLine(line({ quantity: "5", weight: "750", weightScope: "line" }))
-    expect(unconfirmed.perPieceKg).toBe(150)
-    expect(unconfirmed.interpretation).toBe("Line total 750 kg ÷ 5 pieces = 150 kg per piece")
-    expect(unconfirmed.origins.weight).toBe("calculated")
-    expect(unconfirmed.status).toBe("ambiguous")
-    expect(unconfirmed.issues[0]).toMatchObject({ field: "weight", kind: "confirm" })
-    expect(unconfirmed.input).toBeNull()
-
-    const confirmed = evaluateLine(line({ quantity: "5", weight: "750", weightScope: "line", confirmed: ["weight"] }))
-    expect(confirmed.status).toBe("ready")
-    expect(confirmed.input?.weightKg).toBe(150)
-    expect(confirmed.lineKg).toBe(750)
+  it("works out a per-piece weight from an explicit line total, as a note and not as a blocker", () => {
+    const evaluation = evaluateLine(line({ quantity: "5", weight: "750", weightScope: "line" }))
+    expect(evaluation.perPieceKg).toBe(150)
+    expect(evaluation.interpretation).toBe("Line total 750 kg ÷ 5 pieces = 150 kg per piece")
+    expect(evaluation.origins.weight).toBe("calculated")
+    expect(evaluation.status).toBe("ready")
+    expect(evaluation.notes).toContainEqual({ code: "weight-calculated", message: "Line total 750 kg ÷ 5 pieces = 150 kg per piece." })
+    expect(evaluation.input?.weightKg).toBe(150)
+    expect(evaluation.lineKg).toBe(750)
   })
 
   it("cannot divide a line total without a quantity", () => {
@@ -204,5 +203,13 @@ describe("duplicates are shown, not removed", () => {
     const lines = [line({ id: "a", source: { page: 2, row: 4 } }), line({ id: "b", source: { page: 2, row: 4 } })]
     const notes = findDuplicates(lines, lines.map(evaluateLine), [])
     expect(notes.get("a")?.some((note) => /read more than once/.test(note))).toBe(true)
+  })
+})
+
+describe("handling clearance is not part of the import", () => {
+  it("a review line has no clearance field, and a stale one is simply not used", () => {
+    expect(Object.keys(blankLine("x"))).not.toContain("clearance")
+    const withLegacyField = { ...line(), clearance: "9" } as ReviewLine
+    expect(Object.keys(evaluateLine(withLegacyField).input!)).not.toContain("clearanceCm")
   })
 })

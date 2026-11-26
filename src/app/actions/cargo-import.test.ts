@@ -58,11 +58,12 @@ const answer: RawExtraction = {
       combinedSize: "120 x 80 x 60 cm",
       sizeUnit: null,
       quantity: "10",
-      weightPerPiece: "150 kg",
-      lineWeight: null,
-      weightUnclear: null,
+      weight: "150 kg",
+      grossWeight: null,
+      netWeight: null,
+      weightScope: "per_piece",
+      weightScopeEvidence: null,
       weightUnit: null,
-      weightKind: null,
       shape: null,
       stackable: null,
       floorOnly: null,
@@ -71,7 +72,6 @@ const answer: RawExtraction = {
       destination: null,
       hazardClass: null,
       handling: null,
-      clearanceCm: null,
       source: { page: null, row: "4", quote: "10 crates" },
       uncertain: [],
     },
@@ -80,6 +80,7 @@ const answer: RawExtraction = {
   warnings: [],
   unreadable: [],
   complete: true,
+  tableSizeUnit: null,
 }
 
 function fakeProvider(configured = true): ExtractionProvider {
@@ -104,7 +105,7 @@ beforeEach(() => {
 describe("saving reviewed lines", () => {
   it("appends without touching existing cargo", async () => {
     const result = await importReviewedCargo("p1", [line()])
-    expect(result).toEqual({ ok: true, count: 1, removed: 0 })
+    expect(result).toEqual({ ok: true, count: 1, removed: 0, drafts: 0 })
     expect(db.cargoItem.deleteMany).not.toHaveBeenCalled()
     expect(db.cargoItem.createMany).toHaveBeenCalledOnce()
     expect(db.cargoItem.createMany.mock.calls[0]![0]!.data).toMatchObject([{ projectId: "p1", name: "Crate", lengthCm: 120, weightKg: 150, quantity: 10 }])
@@ -119,7 +120,7 @@ describe("saving reviewed lines", () => {
 
   it("replaces inside one transaction, removing the project's lines and adding the new ones", async () => {
     const result = await importReviewedCargo("p1", [line()], { mode: "replace", confirmReplace: true })
-    expect(result).toEqual({ ok: true, count: 1, removed: 3 })
+    expect(result).toEqual({ ok: true, count: 1, removed: 3, drafts: 0 })
     expect(db.$transaction).toHaveBeenCalledOnce()
     expect(db.cargoItem.deleteMany).toHaveBeenCalledWith({ where: { projectId: "p1" } })
     expect(db.cargoItem.createMany).toHaveBeenCalledOnce()
@@ -150,12 +151,10 @@ describe("saving reviewed lines", () => {
     expect(db.cargoItem.createMany).not.toHaveBeenCalled()
   })
 
-  it("keeps the project's clearance by default and stores a stated override", async () => {
-    await importReviewedCargo("p1", [line(), line({ name: "Crate 2", clearanceCm: 5 })])
+  it("creates no clearance setting, even if the lines it is given still carry one", async () => {
+    await importReviewedCargo("p1", [line(), line({ name: "Crate 2", clearanceCm: 5, clearanceSides: { front: 1, rear: 2, left: 3, right: 4 } })])
     const rows = db.cargoItem.createMany.mock.calls[0]![0]!.data as { customFields: unknown }[]
-    // Inheriting stores nothing; an explicit override is stored in the line's own settings.
-    expect(rows[0]!.customFields).not.toEqual(expect.objectContaining({ clearanceCm: expect.anything() }))
-    expect(JSON.stringify(rows[1]!.customFields)).toContain("5")
+    for (const row of rows) expect(JSON.stringify(row.customFields ?? null)).not.toMatch(/clearance/)
   })
 
   it("still lets Undo restore a line exactly as it was, even one that is not complete yet", async () => {
@@ -169,15 +168,15 @@ describe("saving reviewed lines", () => {
 
 describe("plans after an import", () => {
   const stored = { id: "a", lengthCm: 100, widthCm: 100, heightCm: 100, weightKg: 10, quantity: 1, shape: "BOX", orientation: "ANY", stackable: true, bottomOnly: false, priority: 0, destinationStop: 1 }
-  const plan = { createdAt: new Date("2026-01-01"), settings: { cargoSignature: cargoSignature([stored]), clearanceCm: 0 } }
+  const plan = { createdAt: new Date("2026-01-01"), settings: { cargoSignature: cargoSignature([stored]) } }
 
   it("an up-to-date plan is marked out of date once lines are added", () => {
-    expect(planStaleness(plan, [stored], 0)).toBeNull()
-    expect(planStaleness(plan, [stored, { ...stored, id: "b" }], 0)).toBe("cargo")
+    expect(planStaleness(plan, [stored])).toBeNull()
+    expect(planStaleness(plan, [stored, { ...stored, id: "b" }])).toBe("cargo")
   })
 
   it("and once the lines are replaced", () => {
-    expect(planStaleness(plan, [{ ...stored, id: "z" }], 0)).toBe("cargo")
+    expect(planStaleness(plan, [{ ...stored, id: "z" }])).toBe("cargo")
   })
 
   it("the import never reruns the packing", async () => {
@@ -303,5 +302,66 @@ describe("what the dialog may know about the server", () => {
     const result = await getImportCapabilities()
     expect(result).toEqual({ aiConfigured: true, aiLabel: "Fake reader", model: "fake-1" })
     expect(JSON.stringify(result)).not.toMatch(/sk-|KEY/)
+  })
+})
+
+describe("incomplete lines added as drafts", () => {
+  const draft = (extra: Record<string, unknown> = {}) => ({
+    ...line({ lengthCm: 0, widthCm: 0, heightCm: 0, weightKg: 0 }),
+    importNotes: ["Size as written: 1000 × 1000 × 1000 (unit not stated)."],
+    ...extra,
+  })
+  const saved = () => db.cargoItem.createMany.mock.calls[0]![0]!.data as { customFields: unknown; lengthCm: number; weightKg: number; name: string }[]
+
+  it("refuses an incomplete line unless the planner chose to add incomplete lines, and changes nothing", async () => {
+    const result = await importReviewedCargo("p1", [line(), draft()])
+    expect(result.ok).toBe(false)
+    expect(db.cargoItem.createMany).not.toHaveBeenCalled()
+  })
+
+  it("saves a draft with zeros where nothing is settled and the document's own words in its notes", async () => {
+    const result = await importReviewedCargo("p1", [draft()], { allowIncomplete: true })
+    expect(result).toEqual({ ok: true, count: 1, removed: 0, drafts: 1 })
+    const [row] = saved()
+    expect([row!.lengthCm, row!.weightKg]).toEqual([0, 0])
+    expect(row!.customFields).toEqual({ importNotes: ["Size as written: 1000 × 1000 × 1000 (unit not stated)."] })
+  })
+
+  it("saves complete lines and drafts together and counts the drafts", async () => {
+    const result = await importReviewedCargo("p1", [line(), draft(), line({ name: "Crate 2" })], { allowIncomplete: true })
+    expect(result).toMatchObject({ ok: true, count: 3, drafts: 1 })
+    expect(saved().map((row) => JSON.stringify(row.customFields ?? null).includes("importNotes"))).toEqual([false, true, false])
+  })
+
+  it("keeps notes off a line that is complete", async () => {
+    await importReviewedCargo("p1", [{ ...line(), importNotes: ["stale"] }], { allowIncomplete: true })
+    expect(JSON.stringify(saved()[0]!.customFields ?? null)).not.toContain("importNotes")
+  })
+
+  it("still needs a name or mark and a quantity, even as a draft", async () => {
+    expect((await importReviewedCargo("p1", [draft({ name: "  " })], { allowIncomplete: true })).ok).toBe(false)
+    expect((await importReviewedCargo("p1", [draft({ quantity: 0 })], { allowIncomplete: true })).ok).toBe(false)
+    expect(db.cargoItem.createMany).not.toHaveBeenCalled()
+  })
+
+  it("limits and cleans the notes it stores", async () => {
+    await importReviewedCargo("p1", [draft({ importNotes: ["x".repeat(400), "ok"] })], { allowIncomplete: true })
+    expect(JSON.stringify(saved()[0]!.customFields ?? null)).not.toContain("xxxx")
+  })
+
+  it("replaces in one transaction when drafts are included, and only after confirmation", async () => {
+    expect((await importReviewedCargo("p1", [draft()], { allowIncomplete: true, mode: "replace" })).ok).toBe(false)
+    const result = await importReviewedCargo("p1", [draft()], { allowIncomplete: true, mode: "replace", confirmReplace: true })
+    expect(result).toMatchObject({ ok: true, removed: 3, drafts: 1 })
+    expect(db.$transaction).toHaveBeenCalledOnce()
+  })
+
+  it("is for planners and admins of the project's organization only", async () => {
+    asUser("VIEWER")
+    expect((await importReviewedCargo("p1", [draft()], { allowIncomplete: true })).ok).toBe(false)
+    asUser("PLANNER")
+    db.project.findFirst.mockResolvedValue(null as never)
+    expect((await importReviewedCargo("p1", [draft()], { allowIncomplete: true })).ok).toBe(false)
+    expect(db.cargoItem.createMany).not.toHaveBeenCalled()
   })
 })

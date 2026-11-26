@@ -127,8 +127,6 @@ export async function suggestEquipment(input: {
   run: (solverInput: SolverInput) => Promise<SolverResult>
   onProgress?: (progress: SuggestProgress) => void
   isCancelled?: () => boolean
-  /** Project default handling clearance per side, in cm. */
-  clearanceCm?: number
   /** Project minimum support share, as a percentage. */
   minSupportPct?: number | null
 }): Promise<EquipmentSuggestion[]> {
@@ -142,7 +140,6 @@ export async function suggestEquipment(input: {
       cargo: input.cargo,
       equipment: [{ ...item, maxCount: unitBudget(item, input.cargo) }],
       objective: input.objective,
-      clearanceCm: input.clearanceCm,
       minSupportPct: input.minSupportPct,
     })
     try {

@@ -54,3 +54,8 @@ export function cargoTotals(lines: Pick<CargoItemInput, "lengthCm" | "widthCm" |
   }
   return { pieces, weightKg, volumeM3 }
 }
+
+/** The lines that can go into a plan: the ones with a name, a size and a weight. Drafts and other incomplete lines are left out. */
+export function plannableLines<T extends Checkable>(lines: T[]): T[] {
+  return lines.filter(isPlannable)
+}

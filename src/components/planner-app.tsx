@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight, Pencil } from "lucide-react"
 import { modeLabel, PLANNER_STEPS, plannerStepSchema, type EquipmentMode, type PlannerStep } from "@compass/domain"
 import { toast } from "sonner"
 import { CargoGrid, type CargoLine } from "@/components/cargo-grid"
+import { plannableLines } from "@/lib/cargo-validation"
 import { CargoImportWizard, type SavedMapping } from "@/components/cargo-import-wizard"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DeleteProjectButton } from "@/components/delete-project-button"
@@ -42,8 +43,6 @@ export function PlannerApp({
     objective: "FEWEST_UNITS" | "LOWEST_COST"
     etd: string | null
     notes: string | null
-    /** Project default handling clearance per side, in cm. */
-    clearanceCm: number
     /** The project's minimum support share (percent), when it has set one. */
     minSupportPct: number | null
   }
@@ -97,7 +96,7 @@ export function PlannerApp({
       ...item,
       maxCount: choices.find((choice) => choice.equipmentTypeId === item.id)?.maxCount ?? 1,
     }))
-  const readyLines = cargo.filter(isReadyCargo)
+  const readyLines = plannableLines(cargo)
   const hasCargo = readyLines.length > 0
   const pieces = readyLines.reduce((sum, line) => sum + line.quantity, 0)
   const unitCount = choices.reduce((sum, choice) => sum + (choice.maxCount ?? 1), 0)
@@ -320,7 +319,7 @@ export function PlannerApp({
           <div key={step === "plan" ? "workspace" : step} className="motion-enter">
           {step === "data" ? (
             <div className="space-y-6">
-              <CargoGrid projectId={project.id} projectName={project.name} lines={cargo} canEdit={canEdit} projectClearance={project.clearanceCm} />
+              <CargoGrid projectId={project.id} projectName={project.name} lines={cargo} canEdit={canEdit} />
               {canEdit ? (
                 <CargoImportWizard
                   projectId={project.id}
@@ -348,7 +347,6 @@ export function PlannerApp({
               projectMode={project.mode}
               cargo={readyLines}
               objective={project.objective}
-              clearanceCm={project.clearanceCm}
               minSupportPct={project.minSupportPct}
               autoSuggest={autoSuggest}
               onAutoSuggestStarted={() => setAutoSuggest(false)}
@@ -363,7 +361,6 @@ export function PlannerApp({
               cargo={cargo}
               equipment={equipment}
               objective={project.objective}
-              clearanceCm={project.clearanceCm}
               minSupportPct={project.minSupportPct}
               initialPlan={plan}
               initialStale={planStale}
@@ -371,7 +368,6 @@ export function PlannerApp({
               variant={step}
               onPlanChange={(ready) => setPlanReady(ready)}
               onStatusChange={setPlanStatus}
-              onOpenPlan={() => void navigate("plan")}
               onEditStep={(target) => void navigate(target)}
             />
           ) : null}
@@ -390,16 +386,5 @@ export function PlannerApp({
         </div>
       </div>
     </div>
-  )
-}
-
-function isReadyCargo(line: CargoLine): boolean {
-  return (
-    line.name.trim().length > 0 &&
-    line.lengthCm > 0 &&
-    line.widthCm > 0 &&
-    line.heightCm > 0 &&
-    line.weightKg > 0 &&
-    line.quantity > 0
   )
 }

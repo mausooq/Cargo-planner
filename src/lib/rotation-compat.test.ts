@@ -1,15 +1,16 @@
-import { clearanceViolations, describeRotation, parseRotation, placedSides, type SideClearance } from "@compass/physics"
+import { describeRotation, parseRotation } from "@compass/physics"
 import { solve, type SolverCargo, type SolverEquipment } from "@compass/solver"
 import { describe, expect, it } from "vitest"
 import { rotateItemFlat } from "@/lib/cargo-skin"
-import { itemSides } from "@/lib/clearance"
 import { layoutProblems, rotationProblem, type LayoutCargoRules } from "@/lib/layout-validation"
 import { packingRows } from "@/lib/plan-export"
 import { planFromDb } from "@/lib/plan-from-db"
-import { metricBoxesOf } from "@/lib/plan-metrics"
-import { clearanceFields, toPlanView, type PlanItemView, type PlanView } from "@/lib/plan-view"
+import { pieceValues, type EnteredCargo } from "@/lib/plan-piece-values"
+import { toPlanView, type PlanItemView, type PlanView } from "@/lib/plan-view"
 
-const mixed: SideClearance = { front: 20, rear: 5, left: 10, right: 5 }
+// Plans saved by earlier versions can hold half-turn rotation codes (LWH@180, WLH@180). The codes stay
+// readable and valid after the feature that produced them was removed, and nothing here rewrites a
+// saved piece's geometry just to tidy a code.
 
 function piece(extra: Partial<PlanItemView> = {}): PlanItemView {
   return {
@@ -27,51 +28,62 @@ function piece(extra: Partial<PlanItemView> = {}): PlanItemView {
     sequence: 1,
     rotation: "LWH",
     shape: "BOX",
-    ...clearanceFields({ clearanceSides: mixed }, 0),
     ...extra,
   }
 }
 
 const rules = (orientation: string): LayoutCargoRules => ({ lengthCm: 120, widthCm: 80, heightCm: 60, orientation: orientation as never, shape: "BOX", allowedRotations: null })
 
-describe("directional clearance turns with the piece", () => {
-  it("four successive quarter turns return the piece, its footprint and its clearance envelope to the start", () => {
+describe("turning a piece in the Playground", () => {
+  it("flips a piece as entered between its two footprints, as it always did", () => {
     const start = piece()
-    let turned = start
-    const seen: string[] = []
-    for (let turn = 0; turn < 4; turn += 1) {
-      turned = rotateItemFlat(turned)
-      seen.push(turned.rotation)
-    }
-    expect(seen).toEqual(["WLH", "LWH@180", "WLH@180", "LWH"])
-    expect([turned.lengthCm, turned.widthCm, turned.rotation]).toEqual([start.lengthCm, start.widthCm, start.rotation])
-    expect(itemSides(turned)).toEqual(itemSides(start))
-  })
-
-  it("every intermediate facing carries each own side to a different placed side", () => {
-    let turned = piece()
-    const placed = [] as string[]
-    for (let turn = 0; turn < 4; turn += 1) {
-      const sides = itemSides(turned)
-      placed.push(`${sides.x0}/${sides.x1}/${sides.y0}/${sides.y1}`)
-      turned = rotateItemFlat(turned)
-    }
-    expect(new Set(placed).size).toBe(4)
+    const once = rotateItemFlat(start)
+    expect([once.lengthCm, once.widthCm, once.rotation]).toEqual([80, 120, "WLH"])
+    const twice = rotateItemFlat(once)
+    expect([twice.lengthCm, twice.widthCm, twice.rotation]).toEqual([120, 80, "LWH"])
   })
 
   it("keeps the actual dimensions, weight and volume through every turn", () => {
     const start = piece()
     let turned = start
-    for (let turn = 0; turn < 4; turn += 1) {
+    for (let turn = 0; turn < 6; turn += 1) {
       turned = rotateItemFlat(turned)
       expect(turned.lengthCm * turned.widthCm * turned.heightCm).toBe(start.lengthCm * start.widthCm * start.heightCm)
+      expect(turned.heightCm).toBe(start.heightCm)
       expect(turned.weightKg).toBe(start.weightKg)
     }
+  })
+
+  it("keeps a piece saved with a half-turn facing consistent: its code always agrees with its sizes", () => {
+    let turned = piece({ rotation: "LWH@180" })
+    const seen: string[] = [turned.rotation]
+    for (let turn = 0; turn < 4; turn += 1) {
+      turned = rotateItemFlat(turned)
+      seen.push(turned.rotation)
+      // Whatever the code, the server accepts the piece for a line that may be turned.
+      expect(rotationProblem(turned, rules("ROTATE_90"))).toBeNull()
+    }
+    // It goes round to plain codes, then flips as any other piece does.
+    expect(seen).toEqual(["LWH@180", "WLH@180", "LWH", "WLH", "LWH"])
+  })
+
+  it("does not change what the old piece occupies when it is read, only when it is turned", () => {
+    const old = piece({ rotation: "WLH@180", lengthCm: 80, widthCm: 120 })
+    expect([old.lengthCm, old.widthCm, old.rotation]).toEqual([80, 120, "WLH@180"])
+    const turned = rotateItemFlat(old)
+    expect([turned.lengthCm, turned.widthCm]).toEqual([120, 80])
+  })
+
+  it("turns a tipped piece about the vertical without standing it up again", () => {
+    const tipped = piece({ lengthCm: 120, widthCm: 60, heightCm: 80, rotation: "LHW" })
+    const turned = rotateItemFlat(tipped)
+    expect([turned.lengthCm, turned.widthCm, turned.heightCm, turned.rotation]).toEqual([60, 120, 80, "HLW"])
+    expect(rotationProblem(turned, rules("ANY"))).toBeNull()
   })
 })
 
 describe("rotation rules of the cargo line", () => {
-  it("lets a free line be turned through all four facings", () => {
+  it("lets a free line be turned", () => {
     let turned = piece()
     for (let turn = 0; turn < 4; turn += 1) {
       turned = rotateItemFlat(turned)
@@ -101,54 +113,72 @@ describe("rotation rules of the cargo line", () => {
     expect(rotationProblem(tipped, rules("ANY"))).toBeTruthy()
   })
 
-  it("accepts a tipped piece the line allows, and gives it the conservative clearance", () => {
+  it("accepts a tipped piece the line allows", () => {
     const tipped = piece({ lengthCm: 120, widthCm: 60, heightCm: 80, rotation: "LHW" })
     expect(rotationProblem(tipped, rules("ANY"))).toBeNull()
-    expect(itemSides(tipped)).toEqual({ x0: 20, x1: 20, y0: 20, y1: 20 })
     expect(parseRotation("LHW").turns).toBeNull()
   })
 })
 
 describe("older plans keep working", () => {
-  it("reads the codes older versions wrote, and the pieces get the sides they always had", () => {
-    for (const code of ["LWH", "WLH"]) {
-      const old = piece({ rotation: code, ...clearanceFields({ clearanceCm: 5 }, 0) })
-      expect(itemSides(old)).toEqual({ x0: 5, x1: 5, y0: 5, y1: 5 })
-    }
-    expect(parseRotation("LWH").turns).toBe(0)
-    expect(parseRotation("WLH").turns).toBe(1)
+  const codes = ["LWH", "WLH", "LWH@180", "WLH@180"]
+  const db = {
+    seed: 1,
+    settings: { clearanceCm: 6, clearanceConfig: { defaultCm: 6, lines: {} } },
+    summary: { warnings: [] },
+    unloaded: [],
+    instances: [
+      {
+        sequence: 1,
+        equipmentTypeId: "eq",
+        metrics: { netKg: 4, floorEffectivePct: 60 },
+        equipmentType: { id: "eq", name: "Box", mode: "SEA", oogClass: "NONE", heightOpen: false, contour: null, innerLengthCm: 700, innerWidthCm: 240, innerHeightCm: 250, maxPayloadKg: 1000 },
+        placements: codes.map((rotation, index) => ({
+          cargoItemId: "a",
+          instanceIndex: index,
+          xCm: index * 130,
+          yCm: 0,
+          zCm: 0,
+          lengthCm: rotation.startsWith("W") ? 80 : 120,
+          widthCm: rotation.startsWith("W") ? 120 : 80,
+          heightCm: 60,
+          rotation,
+          cargoItem: { name: "a", sku: "A-1", weightKg: 1, color: null, shape: "BOX", customFields: { clearanceSides: { front: 20, rear: 5, left: 10, right: 5 } } },
+        })),
+      },
+    ],
+  }
+
+  it("loads a saved plan that has plain and half-turn codes together, with each piece's own code and sizes", () => {
+    const items = planFromDb(db as never).units[0]!.items
+    expect(items.map((item) => item.rotation)).toEqual(codes)
+    expect(items.map((item) => [item.lengthCm, item.widthCm, item.heightCm])).toEqual([
+      [120, 80, 60],
+      [80, 120, 60],
+      [120, 80, 60],
+      [80, 120, 60],
+    ])
   })
 
-  it("loads a saved plan that has old and new codes together, and keeps each piece's own", () => {
-    const db = {
-      seed: 1,
-      settings: { clearanceCm: 0 },
-      summary: { warnings: [] },
-      unloaded: [],
-      instances: [
-        {
-          sequence: 1,
-          equipmentTypeId: "eq",
-          metrics: { netKg: 3 },
-          equipmentType: { id: "eq", name: "Box", mode: "SEA", oogClass: "NONE", heightOpen: false, contour: null, innerLengthCm: 500, innerWidthCm: 240, innerHeightCm: 250, maxPayloadKg: 1000 },
-          placements: ["LWH", "WLH", "LWH@180", "WLH@180"].map((rotation, index) => ({
-            cargoItemId: "a",
-            instanceIndex: index,
-            xCm: index * 130,
-            yCm: 0,
-            zCm: 0,
-            lengthCm: rotation.startsWith("W") ? 80 : 120,
-            widthCm: rotation.startsWith("W") ? 120 : 80,
-            heightCm: 60,
-            rotation,
-            cargoItem: { name: "a", sku: null, weightKg: 1, color: null, shape: "BOX", customFields: { clearanceSides: mixed } },
-          })),
-        },
-      ],
-    }
+  it("the server's check accepts every one of them for a line that may be turned", () => {
+    const unit = planFromDb(db as never).units[0]!
+    const pieces = unit.items.map((item) => ({ item, cargo: rules("ROTATE_90") }))
+    expect(layoutProblems(unit, pieces).size).toBe(0)
+  })
+
+  it("the Turned indicator is right for every code, including a half turn that leaves the sizes unchanged", () => {
+    const entered: EnteredCargo = { id: "a", sku: "A-1", name: "a", lengthCm: 120, widthCm: 80, heightCm: 60, weightKg: 1 }
     const items = planFromDb(db as never).units[0]!.items
-    expect(items.map((item) => item.rotation)).toEqual(["LWH", "WLH", "LWH@180", "WLH@180"])
-    expect(items.map((item) => itemSides(item))).toEqual(["LWH", "WLH", "LWH@180", "WLH@180"].map((code) => placedSides(mixed, code)))
+    const values = items.map((item) => pieceValues(item, new Map([["a", entered]])))
+    expect(values.map((value) => value.turned)).toEqual([false, true, true, true])
+    expect(values.map((value) => value.facing)).toEqual([null, "Turned 90°", "Turned 180°", "Turned 270°"])
+    // Always shown in the order it was entered, whatever the facing.
+    for (const value of values) expect([value.lengthCm, value.widthCm, value.heightCm]).toEqual([120, 80, 60])
+  })
+
+  it("a plan that carries clearance settings opens exactly like one that does not", () => {
+    const without = { ...db, settings: {}, instances: [{ ...db.instances[0]!, placements: db.instances[0]!.placements.map((row) => ({ ...row, cargoItem: { ...row.cargoItem, customFields: null } })) }] }
+    expect(planFromDb(db as never).units[0]!.items).toEqual(planFromDb(without as never).units[0]!.items)
   })
 })
 
@@ -177,34 +207,25 @@ describe("the packer, the Playground, the server and the reports read the codes 
   })
 
   for (const [label, cargoLine] of [
-    ["directional", line("a", { clearanceSides: mixed })],
-    ["uniform", line("a", { clearanceCm: 6 })],
-    ["fixed and directional", line("a", { orientation: "FIXED", clearanceSides: mixed })],
-    ["inheriting", line("a")],
+    ["a free", line("a")],
+    ["a fixed", line("a", { orientation: "FIXED" })],
+    ["a lengthways", line("a", { orientation: "LONGSHIP" })],
   ] as const) {
-    it(`accepts the packer's ${label} layout everywhere: no violations, valid on the server, and a plain-language facing in the export`, () => {
-      const result = solve({ equipment: [trailer], cargo: [cargoLine], settings: { restarts: 4, clearanceCm: 4 } })
+    it(`accepts the packer's layout for ${label} line everywhere: valid on the server, and a plain-language facing in the export`, () => {
+      const result = solve({ equipment: [trailer], cargo: [cargoLine], settings: { restarts: 4 } })
       expect(result.unloaded).toEqual([])
       const plan: PlanView = toPlanView(
         result,
         [{ id: "tr", name: "Trailer", mode: "ROAD", oogClass: "NONE", heightOpen: false, contour: null, lengthCm: 600, widthCm: 240, heightCm: 250, maxPayloadKg: 20000 }],
-        [{ id: "a", name: "a", weightKg: 100, color: null, clearanceCm: cargoLine.clearanceCm ?? null, clearanceSides: cargoLine.clearanceSides ?? null }],
+        [{ id: "a", name: "a", weightKg: 100, color: null }],
       )
       const unit = plan.units[0]!
-      // The Playground's interpretation (itemSides) agrees with the packer: nothing is in anyone's reserved space.
-      expect(clearanceViolations(metricBoxesOf(unit.items), unit)).toEqual([])
-      // The server's check accepts the same layout, rotation codes included.
-      const pieces = unit.items.map((item) => ({ item, cargo: rules2(cargoLine) }))
+      const pieces = unit.items.map((item) => ({ item, cargo: { lengthCm: cargoLine.lengthCm, widthCm: cargoLine.widthCm, heightCm: cargoLine.heightCm, orientation: cargoLine.orientation, shape: cargoLine.shape, allowedRotations: null } as LayoutCargoRules }))
       expect(layoutProblems(unit, pieces).size).toBe(0)
-      // The export describes each facing in words and never prints a code it cannot explain.
       for (const row of packingRows(plan)) {
         expect(["As entered", "Turned 90°", "Turned 180°", "Turned 270°", "Tipped onto another face"]).toContain(row.Facing)
       }
     })
-  }
-
-  function rules2(cargoLine: SolverCargo): LayoutCargoRules {
-    return { lengthCm: cargoLine.lengthCm, widthCm: cargoLine.widthCm, heightCm: cargoLine.heightCm, orientation: cargoLine.orientation, shape: cargoLine.shape, allowedRotations: null }
   }
 
   it("describes every rotation code in words for the Excel packing list", () => {
@@ -216,20 +237,10 @@ describe("the packer, the Playground, the server and the reports read the codes 
     expect(describeRotation(undefined)).toBe("As entered")
   })
 
-  it("a zero-clearance line still keeps out of a neighbour's reserved space after turning", () => {
-    const result = solve({
-      equipment: [trailer],
-      cargo: [line("roomy", { quantity: 4, clearanceSides: mixed }), line("tight", { quantity: 4, clearanceCm: 0 })],
-      settings: { restarts: 5 },
-    })
-    const plan = toPlanView(
-      result,
-      [{ id: "tr", name: "Trailer", mode: "ROAD", oogClass: "NONE", heightOpen: false, contour: null, lengthCm: 600, widthCm: 240, heightCm: 250, maxPayloadKg: 20000 }],
-      [
-        { id: "roomy", name: "roomy", weightKg: 100, color: null, clearanceSides: mixed },
-        { id: "tight", name: "tight", weightKg: 100, color: null, clearanceCm: 0 },
-      ],
-    )
-    for (const unit of plan.units) expect(clearanceViolations(metricBoxesOf(unit.items), unit)).toEqual([])
+  it("the packer no longer produces half-turn codes, since only a directional setting ever asked for them", () => {
+    const result = solve({ equipment: [trailer], cargo: [line("a", { quantity: 12 }), line("b", { quantity: 8, lengthCm: 83.3, widthCm: 41.7 })], settings: { restarts: 5 } })
+    const codes = result.units.flatMap((unit) => unit.placements.map((placement) => placement.rotation))
+    expect(codes.length).toBeGreaterThan(0)
+    expect(codes.every((code) => !code.includes("@"))).toBe(true)
   })
 })

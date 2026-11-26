@@ -234,19 +234,18 @@ describe("the same cargo entered in different units is the same cargo", () => {
     consignmentId: null,
     segregationClass: null,
     color: null,
-    clearanceSides: { front: 12, rear: 4, left: 6, right: 2 },
   })
 
-  it("packs identically: same positions, rotations, volume, floor figures and clearance results", () => {
-    const base = solve({ equipment: [container], cargo: [cargoFor("cm")], settings: { restarts: 4, clearanceCm: 3 } })
+  it("packs identically: same positions, rotations, volume and floor figures", () => {
+    const base = solve({ equipment: [container], cargo: [cargoFor("cm")], settings: { restarts: 4 } })
     for (const unit of LENGTH_UNITS) {
-      const result = solve({ equipment: [container], cargo: [cargoFor(unit)], settings: { restarts: 4, clearanceCm: 3 } })
+      const result = solve({ equipment: [container], cargo: [cargoFor(unit)], settings: { restarts: 4 } })
       expect(result.units, unit).toEqual(base.units)
       expect(result.unloaded).toEqual(base.unloaded)
     }
     const metrics = base.units[0]!.metrics
     expect(metrics.volumeM3).toBeCloseTo(9 * 1.524 * 0.9144 * 0.6096, 2)
-    expect(metrics.floorEffectivePct).toBeGreaterThan(metrics.floorActualPct)
+    expect(metrics.floorPct).toBeGreaterThan(0)
   })
 
   it("has the same volume and weight totals", () => {
@@ -265,14 +264,6 @@ describe("the same cargo entered in different units is the same cargo", () => {
     const reference = floorUtilization(layout("cm"), { lengthCm: 600, widthCm: 240 })
     for (const unit of LENGTH_UNITS) expect(floorUtilization(layout(unit), { lengthCm: 600, widthCm: 240 })).toEqual(reference)
   })
-
-  it("keeps clearance in centimetres, whichever unit the sizes are shown in", () => {
-    // The clearance of a piece is a number of cm that no length unit touches.
-    const piece = solve({ equipment: [container], cargo: [cargoFor("ft")], settings: { restarts: 2 } }).units[0]!.placements[0]!
-    // The first piece sits exactly one of its own side values (12, 4, 6 or 2 cm) from the walls: centimetres, not feet.
-    expect([12, 4, 6, 2]).toContain(piece.x)
-    expect([12, 4, 6, 2]).toContain(piece.y)
-  })
 })
 
 describe("the plan's status does not depend on the display unit", () => {
@@ -284,15 +275,15 @@ describe("the plan's status does not depend on the display unit", () => {
 
   it("the same cargo has the same signature whichever unit it was typed in, so the plan is not outdated by a unit switch", () => {
     expect(cargoSignature([row("ft")])).toBe(cargoSignature([row("cm")]))
-    const plan = { createdAt: new Date("2026-11-01"), settings: { clearanceCm: 0, clearanceConfig: { defaultCm: 0, lines: {} }, cargoSignature: cargoSignature([row("cm")]) } }
-    expect(planStaleness(plan, [row("ft")], 0)).toBeNull()
-    expect(derivePlanStatus({ hasPlan: true, calculating: false, stale: planStaleness(plan, [row("ft")], 0) !== null, failed: false }).kind).toBe("ready")
+    const plan = { createdAt: new Date("2026-11-01"), settings: { cargoSignature: cargoSignature([row("cm")]) } }
+    expect(planStaleness(plan, [row("ft")])).toBeNull()
+    expect(derivePlanStatus({ hasPlan: true, calculating: false, stale: planStaleness(plan, [row("ft")]) !== null, failed: false }).kind).toBe("ready")
   })
 
   it("a real change of a physical size still makes the plan out of date, however it was typed", () => {
-    const plan = { createdAt: new Date("2026-11-01"), settings: { clearanceCm: 0, clearanceConfig: { defaultCm: 0, lines: {} }, cargoSignature: cargoSignature([row("cm")]) } }
+    const plan = { createdAt: new Date("2026-11-01"), settings: { cargoSignature: cargoSignature([row("cm")]) } }
     const taller = { ...row("ft"), heightCm: cmOf("2.5", "ft") }
-    expect(planStaleness(plan, [taller], 0)).toBe("cargo")
+    expect(planStaleness(plan, [taller])).toBe("cargo")
   })
 })
 
@@ -419,12 +410,12 @@ describe("reports state their units", () => {
       warnings: [],
       unloaded: [],
       restartsRun: 1,
-      settings: { clearanceCm: 5 },
+      settings: {},
       units: [
         {
           unitIndex: 0,
           equipmentId: "eq",
-          metrics: { pieces: 1, netKg: 10, grossKg: 10, volumeM3: 0.84, volumePct: 1, floorPct: 2, floorActualPct: 2, floorEffectivePct: 3, weightPct: 1, remainingKg: 990, remainingM3: 50, usedLengthCm: 304.8, usedWidthCm: 152.4, usedHeightCm: 91.44, cog: { x: 0, y: 0, z: 0 }, axleLoads: [] },
+          metrics: { pieces: 1, netKg: 10, grossKg: 10, volumeM3: 0.84, volumePct: 1, floorPct: 2, weightPct: 1, remainingKg: 990, remainingM3: 50, usedLengthCm: 304.8, usedWidthCm: 152.4, usedHeightCm: 91.44, cog: { x: 0, y: 0, z: 0 }, axleLoads: [] },
           placements: [{ cargoId: "a", instanceIndex: 0, unitIndex: 0, sequence: 1, x: 30.48, y: 15.24, z: 0, lengthCm: 304.8, widthCm: 152.4, heightCm: 91.44, rotation: "LWH", layer: 1 }],
         },
       ],
@@ -439,11 +430,11 @@ describe("reports state their units", () => {
     expect(summaryRows(plan)[0]).toMatchObject({ "Used length (cm)": 305 })
   })
 
-  it("writes sizes and positions in feet with the unit in every title, and clearance still in cm", () => {
+  it("writes sizes and positions in feet with the unit in every title", () => {
     const row = packingRows(plan, "ft")[0]!
     expect(row).toMatchObject({ "Length (ft)": 10, "Width (ft)": 5, "Height (ft)": 3, "From front (ft)": 1, "From left (ft)": 0.5, "From floor (ft)": 0 })
     expect(Object.keys(row).some((key) => key.endsWith("(cm)"))).toBe(false)
-    expect(row.Clearance).toBe("Default · 5 cm")
+    expect(Object.keys(row)).not.toContain("Clearance")
     expect(summaryRows(plan, "ft")[0]).toMatchObject({ "Used length (ft)": 10 })
     // Weights and volumes keep their units.
     expect(row["Weight (kg)"]).toBe(10)
@@ -451,10 +442,10 @@ describe("reports state their units", () => {
   })
 
   it("explains the units on the Notes sheet", () => {
-    const units = noteRows(plan, "ft").find((entry) => entry.Topic === "Units")!
+    const units = noteRows("ft").find((entry) => entry.Topic === "Units")!
     expect(units.Note).toMatch(/feet \(ft\)/)
-    expect(units.Note).toMatch(/clearance is always in centimetres/i)
-    expect(noteRows(plan).find((entry) => entry.Topic === "Units")!.Note).toMatch(/centimetre|cm/)
+    expect(units.Note).not.toMatch(/clearance/i)
+    expect(noteRows().find((entry) => entry.Topic === "Units")!.Note).toMatch(/centimetre|cm/)
   })
 
   it("the layout, and so every other figure, is unchanged by the unit", () => {

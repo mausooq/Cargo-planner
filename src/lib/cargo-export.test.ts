@@ -48,7 +48,7 @@ describe("cargo export", () => {
   it("uses column titles the import wizard maps by itself", () => {
     const mapped = Object.values(suggestMapping([...CARGO_EXPORT_HEADERS]))
     // "dimensions" (one combined size cell) and "lineWeight" (a line total) are for customer files; the export writes separate size and per-piece weight columns.
-    const exported = CARGO_IMPORT_FIELDS.filter((field) => field !== "dimensions" && field !== "lineWeight")
+    const exported = CARGO_IMPORT_FIELDS.filter((field) => field !== "dimensions" && field !== "lineWeight" && field !== "netWeight")
     expect(mapped.slice().sort()).toEqual([...exported].sort())
   })
 
