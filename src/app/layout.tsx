@@ -2,6 +2,8 @@ import type { Metadata } from "next"
 import type { ReactNode } from "react"
 import { Providers } from "@/components/providers"
 import { Toaster } from "@/components/ui/sonner"
+// Figtree, served from this app (no font CDN at runtime). Used through the --font-brand token.
+import "@fontsource-variable/figtree/wght.css"
 import "./globals.css"
 
 export const metadata: Metadata = {

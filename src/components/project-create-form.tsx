@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label"
 
 const SELECT_CLASS = "h-9 w-full rounded-md border bg-background px-3 text-sm"
 
-export function ProjectCreateForm({ size = "sm" }: { size?: "sm" | "default" }) {
+export function ProjectCreateForm({ size = "sm" }: { size?: "sm" | "default" | "lg" }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const form = useForm<ProjectCreateInput>({
@@ -52,9 +52,9 @@ export function ProjectCreateForm({ size = "sm" }: { size?: "sm" | "default" }) 
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button" size={size}>
+        <Button type="button" size={size} className={size === "lg" ? "press h-11 rounded-xl px-5 text-[15px] font-semibold shadow-soft hover:shadow-lift" : undefined}>
           <Plus className="size-4" />
-          New project
+          New Project
         </Button>
       </DialogTrigger>
       <DialogContent>

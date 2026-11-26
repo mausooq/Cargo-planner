@@ -35,7 +35,7 @@ export function DeleteProjectButton({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-8 hover:text-destructive"
+          className="press size-9 rounded-lg text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
           aria-label={`Delete ${name}`}
           title="Delete project"
           onClick={() => setOpen(true)}

@@ -3,28 +3,41 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #f5f7f8;
-  --foreground: #16191d;
+  --background: #f4f6f7;
+  --foreground: #172330;
   --card: #ffffff;
-  --card-foreground: #1a1d21;
+  --card-foreground: #172330;
   --popover: #ffffff;
-  --popover-foreground: #1a1d21;
-  --primary: #0f5c4c;
+  --popover-foreground: #172330;
+  --primary: #105b4b;
   --primary-foreground: #ffffff;
   --secondary: #eef0f2;
   --secondary-foreground: #1a1d21;
   --muted: #eef0f2;
   --muted-foreground: #5c6370;
   --accent: #e8edeb;
-  --accent-foreground: #0f5c4c;
+  --accent-foreground: #105b4b;
   --destructive: #b42318;
   --border: #dfe3e8;
   --input: #cfd5dc;
-  --ring: #0f5c4c;
+  --ring: #105b4b;
+  /* Pastel tints for icon tiles, status pills and highlights. Each has a matching foreground. */
+  --tint-mint: #e3f3ec;
+  --tint-mint-foreground: #105b4b;
+  --tint-blue: #e5effb;
+  --tint-blue-foreground: #1f4f8f;
+  --tint-lavender: #eee9fa;
+  --tint-lavender-foreground: #553c9a;
+  --tint-amber: #fff3dc;
+  --tint-amber-foreground: #8a5300;
   /* Soft depth for cards and raised controls. */
   --elev-card: 0 1px 2px rgb(16 24 40 / 0.05), 0 1px 3px rgb(16 24 40 / 0.04);
   --elev-raised: 0 4px 12px rgb(16 24 40 / 0.08), 0 1px 3px rgb(16 24 40 / 0.06);
-  --chart-1: #0f5c4c;
+  --elev-soft: 0 1px 2px rgb(16 24 40 / 0.04), 0 2px 8px -2px rgb(16 24 40 / 0.06);
+  /* Workspace background for the redesigned pages (static). */
+  --workspace-bg: linear-gradient(120deg, #e0f0e8 0%, #e8eef9 55%, #f0e8f5 100%);
+  --elev-lift: 0 14px 28px -10px rgb(16 24 40 / 0.16), 0 4px 10px -4px rgb(16 24 40 / 0.08);
+  --chart-1: #105b4b;
   --chart-2: #3f4a56;
   --chart-3: #6b7280;
   --chart-4: #98a2b3;
@@ -51,8 +64,19 @@
   --border: #2d3238;
   --input: #363c44;
   --ring: #3d8f7a;
+  --tint-mint: #17322b;
+  --tint-mint-foreground: #8fd1bb;
+  --tint-blue: #19283b;
+  --tint-blue-foreground: #9cc0ef;
+  --tint-lavender: #262040;
+  --tint-lavender-foreground: #c4b5f2;
+  --tint-amber: #362a14;
+  --tint-amber-foreground: #f1c878;
   --elev-card: 0 1px 2px rgb(0 0 0 / 0.3);
   --elev-raised: 0 6px 16px rgb(0 0 0 / 0.45);
+  --elev-soft: 0 1px 2px rgb(0 0 0 / 0.35), 0 2px 8px -2px rgb(0 0 0 / 0.3);
+  --workspace-bg: linear-gradient(120deg, #111a17 0%, #121722 55%, #18131d 100%);
+  --elev-lift: 0 16px 32px -10px rgb(0 0 0 / 0.6), 0 4px 10px -4px rgb(0 0 0 / 0.4);
   --chart-1: #3d8f7a;
   --chart-2: #98a2b3;
   --chart-3: #6b7280;
@@ -79,6 +103,14 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-tint-mint: var(--tint-mint);
+  --color-tint-mint-foreground: var(--tint-mint-foreground);
+  --color-tint-blue: var(--tint-blue);
+  --color-tint-blue-foreground: var(--tint-blue-foreground);
+  --color-tint-lavender: var(--tint-lavender);
+  --color-tint-lavender-foreground: var(--tint-lavender-foreground);
+  --color-tint-amber: var(--tint-amber);
+  --color-tint-amber-foreground: var(--tint-amber-foreground);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -88,11 +120,60 @@
   --radius-md: var(--radius);
   --radius-lg: 0.875rem;
   --radius-xl: 1rem;
+  --radius-2xl: 1.25rem;
   --shadow-card: var(--elev-card);
   --shadow-raised: var(--elev-raised);
+  --shadow-soft: var(--elev-soft);
+  --shadow-lift: var(--elev-lift);
+  /* Card corners for the redesigned surfaces (16px). */
+  --radius-card: 1rem;
+  /* Motion: one duration and curve for hover and press feedback. */
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --duration-soft: 200ms;
+  /* Typography scale for the redesign. Each size carries its line height, weight and tracking. */
+  --text-page-title: 2.125rem;
+  --text-page-title--line-height: 2.625rem;
+  --text-page-title--font-weight: 800;
+  --text-page-title--letter-spacing: -0.025em;
+  --text-page-desc: 0.9375rem;
+  --text-page-desc--line-height: 1.5rem;
+  --text-page-desc--font-weight: 400;
+  --text-stat: 2.375rem;
+  --text-stat--line-height: 2.5rem;
+  --text-stat--font-weight: 800;
+  --text-stat--letter-spacing: -0.03em;
+  --text-stat-label: 1rem;
+  --text-stat-label--line-height: 1.375rem;
+  --text-stat-label--font-weight: 600;
+  --text-card-title: 1.25rem;
+  --text-card-title--line-height: 1.75rem;
+  --text-card-title--font-weight: 700;
+  --text-card-title--letter-spacing: -0.015em;
+  --text-nav: 0.9375rem;
+  --text-nav--line-height: 1.375rem;
+  --text-nav--font-weight: 600;
+  --text-label: 0.875rem;
+  --text-label--line-height: 1.25rem;
+  --text-label--font-weight: 600;
+  --text-detail: 0.9375rem;
+  --text-detail--line-height: 1.375rem;
+  --text-detail--font-weight: 500;
+  --text-meta: 0.875rem;
+  --text-meta--line-height: 1.3125rem;
+  --text-meta--font-weight: 400;
+  --text-step: 0.8125rem;
+  --text-step--line-height: 1.125rem;
+  --text-step--font-weight: 500;
+  --text-button: 0.9375rem;
+  --text-button--line-height: 1.375rem;
+  --text-button--font-weight: 600;
+  --text-option: 0.875rem;
+  --text-option--line-height: 1.25rem;
+  --text-option--font-weight: 500;
   /* System fonts: nothing to download at build time, so builds work on offline or firewalled
      servers (e.g. an on-prem DGX). Each device uses its own UI font. */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-brand: "Figtree Variable", "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
@@ -134,6 +215,53 @@
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--muted-foreground);
+}
+
+/* ---------- Redesign surfaces ----------
+   surface-card: the redesigned card (16px corners, refined border, layered soft shadow).
+   lift: hover feedback for clickable cards (rises 3px, green border, deeper shadow, a hint of mint).
+   press: click feedback for buttons, chips and icons.
+   Durations follow --duration-soft and are switched off by prefers-reduced-motion below. */
+/* The workspace gradient, filling the area under the header. */
+@utility bg-workspace {
+  background: var(--workspace-bg);
+}
+
+@utility surface-card {
+  border-radius: var(--radius-card);
+  border: 1px solid color-mix(in oklab, var(--border) 85%, transparent);
+  background-color: var(--card);
+  box-shadow: var(--elev-soft);
+}
+
+@utility lift {
+  transition-property: transform, box-shadow, border-color, background-color;
+  transition-duration: var(--duration-soft);
+  transition-timing-function: var(--ease-soft);
+  &:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
+    box-shadow: var(--elev-lift);
+    background-color: color-mix(in oklab, var(--tint-mint) 22%, var(--card));
+  }
+  &:hover [data-tile] {
+    transform: scale(1.06);
+  }
+  &:active {
+    transform: translateY(-1px);
+  }
+  & [data-tile] {
+    transition: transform var(--duration-soft) var(--ease-soft);
+  }
+}
+
+@utility press {
+  transition-property: color, background-color, border-color, box-shadow, transform;
+  transition-duration: var(--duration-soft);
+  transition-timing-function: var(--ease-soft);
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
 }
 
 /* Printed load plan report: always light, no app chrome, one unit per page. */
@@ -273,6 +401,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* No movement at all: hover and press keep their colour changes but never move or scale. */
+  .lift:hover,
+  .lift:active,
+  .lift:hover [data-tile],
+  .press:active {
+    transform: none !important;
+  }
+
 
   *,
   *::before,

@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Boxes, ClipboardList, PackageCheck } from "lucide-react"
 import { canDeleteProjects, canEditProjects, roleSchema } from "@compass/domain"
+import { PageHeader } from "@/components/design-system"
 import { ProjectCreateForm } from "@/components/project-create-form"
 import { ProjectFolderList, type ProjectFolder } from "@/components/project-folder-list"
 import { prisma } from "@/lib/prisma"
@@ -57,6 +58,10 @@ export default async function DashboardPage() {
       notes: project.notes,
       cargoCount: project.cargoItems.length,
       pieces: project.cargoItems.reduce((sum, item) => sum + item.quantity, 0),
+      // Totals from the cargo lines already loaded for this page (no extra query). Lines without a weight are counted apart.
+      weightKg: project.cargoItems.reduce((sum, item) => sum + Math.max(0, item.weightKg) * item.quantity, 0),
+      volumeM3: project.cargoItems.reduce((sum, item) => sum + (item.lengthCm * item.widthCm * item.heightCm * item.quantity) / 1_000_000, 0),
+      unweighedLines: project.cargoItems.filter((item) => !(item.weightKg > 0)).length,
       updatedAt: new Date(Math.max(...activity.map((date) => date.getTime()))).toISOString(),
       containers,
       status: projectStatus({
@@ -76,18 +81,16 @@ export default async function DashboardPage() {
   })
 
   return (
-    <main id="main" className="mx-auto w-full max-w-[1400px] px-4 py-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Projects</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Each project is one shipment: its cargo, the equipment to load it into, and the load plan.
-          </p>
-        </div>
-        {canEdit && projects.length > 0 ? <ProjectCreateForm size="default" /> : null}
-      </div>
+    // The workspace gradient fills everything under the header, including empty space below the cards.
+    <div className="bg-workspace min-h-[calc(100dvh-3.5rem)] font-brand">
+    <main id="main" className="mx-auto w-full max-w-[1560px] px-4 py-8 sm:px-6 lg:px-8">
+      <PageHeader
+        title="Projects"
+        description="Manage your shipments, cargo, equipment and load plans in one place."
+        actions={canEdit && projects.length > 0 ? <ProjectCreateForm size="lg" /> : null}
+      />
 
-      <section className="mt-5">
+      <section className="mt-7">
         {projects.length === 0 ? (
           <div className="rounded-md border border-dashed bg-card px-4 py-12 text-center">
             <p className="text-base font-medium">Plan your first shipment</p>
@@ -103,7 +106,7 @@ export default async function DashboardPage() {
             </ol>
             {canEdit ? (
               <div className="mt-6 flex justify-center">
-                <ProjectCreateForm size="default" />
+                <ProjectCreateForm size="lg" />
               </div>
             ) : null}
             <p className="mt-4 text-xs text-muted-foreground">
@@ -118,6 +121,7 @@ export default async function DashboardPage() {
         )}
       </section>
     </main>
+    </div>
   )
 }
 
