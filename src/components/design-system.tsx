@@ -277,6 +277,14 @@ export function SummaryCard({
 /** Icon and pastel tint for each transport mode, shared by the dashboard and the project header. */
 export const TRANSPORT_ICON: Record<EquipmentMode, ComponentType<{ className?: string }>> = { SEA: Ship, AIR: Plane, ROAD: Truck, PALLET: Package }
 export const TRANSPORT_TINT: Record<EquipmentMode, Tint> = { SEA: "blue", AIR: "lavender", ROAD: "mint", PALLET: "amber" }
+/** Text colour of each tint, as literal classes (Tailwind only finds class names written out in full). */
+export const TINT_TEXT: Record<Tint, string> = {
+  mint: "text-tint-mint-foreground",
+  blue: "text-tint-blue-foreground",
+  lavender: "text-tint-lavender-foreground",
+  amber: "text-tint-amber-foreground",
+  neutral: "text-muted-foreground",
+}
 
 /** A titled white panel for page sections (a table, an extraction summary). */
 export function SectionCard({

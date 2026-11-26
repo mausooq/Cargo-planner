@@ -100,7 +100,7 @@ export function PlannerApp({
     }))
   const readyLines = plannableLines(cargo)
   // The redesigned look (workspace gradient, brand font, roomier bottom bar) applies to the steps redesigned so far.
-  const redesigned = step === "data"
+  const redesigned = step === "data" || step === "setup"
   const projectMode = project.mode
   const cargoSum = cargoTotals(cargo)
   const hasCargo = readyLines.length > 0

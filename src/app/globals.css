@@ -51,6 +51,7 @@
   --pastel-amber-accent: #a16b16;
   /* Ocean Lavender data tables. */
   --table-head-bg: linear-gradient(110deg, #d5e9df 0%, #dfe9f7 50%, #e8dff3 100%);
+  --table-head-start: #d5e9df;
   --table-head-end: #e8dff3;
   --table-head-fg: #24483f;
   --table-row: #ffffff;
@@ -59,6 +60,7 @@
   --table-total-bg: #e4f0e9;
   --table-total-fg: #105b4b;
   --table-border: #d3e3dd;
+  --suggest-border: #c8d9d9;
   /* Workflow stepper. */
   --step-active: #105b4b;
   --step-done-bg: #d5e9df;
@@ -119,6 +121,7 @@
   --pastel-amber-border: #5a4520;
   --pastel-amber-accent: #f1c878;
   --table-head-bg: linear-gradient(110deg, #1b382f 0%, #1c293b 50%, #29223e 100%);
+  --table-head-start: #1b382f;
   --table-head-end: #29223e;
   --table-head-fg: #cfe6dc;
   --table-row: #1a1d21;
@@ -127,6 +130,7 @@
   --table-total-bg: #172e28;
   --table-total-fg: #8fd1bb;
   --table-border: #2b3a35;
+  --suggest-border: #2f4540;
   --step-active: #3d8f7a;
   --step-done-bg: #1d3a31;
   --step-done-fg: #8fd1bb;
@@ -383,6 +387,9 @@
   /* A header cell pinned to the right edge needs a solid colour: the gradient's end. */
   .data-table thead th.sticky {
     background: var(--table-head-end);
+  }
+  .data-table thead th.sticky.left-0 {
+    background: var(--table-head-start);
   }
   .data-table tbody tr {
     background-color: var(--table-row);

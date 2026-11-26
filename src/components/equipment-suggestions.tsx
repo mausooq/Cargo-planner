@@ -10,6 +10,7 @@ import type { EquipmentListItem } from "@/lib/equipment-catalog"
 import { suggestEquipment, type EquipmentSuggestion, type Objective, type SuggestProgress } from "@/lib/equipment-suggest"
 import { formatCost, formatPct } from "@/lib/format"
 import { runSolver } from "@/lib/run-solver"
+import { IconTile, TRANSPORT_ICON, TRANSPORT_TINT } from "@/components/design-system"
 import { cn } from "@/lib/utils"
 
 const SHOWN = 5
@@ -46,6 +47,7 @@ export function EquipmentSuggestions({
   selected,
   onUse,
   highlight = false,
+  onResults,
 }: {
   cargo: CargoLine[]
   /** The whole equipment library; the chosen transport mode decides which types are compared. */
@@ -59,6 +61,8 @@ export function EquipmentSuggestions({
   canEdit: boolean
   selected: { equipmentTypeId: string; quantity: number }[]
   onUse: (equipmentTypeId: string, units: number) => void
+  /** The current ranking (null while there is none or it is out of date), for the page to mark the best fit elsewhere. */
+  onResults?: (ranked: EquipmentSuggestion[] | null) => void
   /** Draw attention to the transport choice (used right after a packing list was imported). */
   highlight?: boolean
 }) {
@@ -77,6 +81,10 @@ export function EquipmentSuggestions({
   // The results only describe one exact cargo list and set of types; anything else makes them stale.
   const signature = useMemo(() => signatureOf(objective, candidates, cargo, minSupportPct), [cargo, candidates, objective, minSupportPct])
   const current = results && results.signature === signature ? results : null
+  const ranked = current?.ranked ?? null
+  useEffect(() => {
+    onResults?.(ranked)
+  }, [onResults, ranked])
   const stale = Boolean(results) && !current
 
   useEffect(() => {
@@ -124,16 +132,18 @@ export function EquipmentSuggestions({
 
   return (
     <section
-      className={cn("rounded-md border bg-card p-4", highlight && askForMode && "border-primary ring-2 ring-primary/25")}
+      className={cn("bg-table-head rounded-[var(--radius-card)] border border-[var(--suggest-border)] p-5 shadow-soft", highlight && askForMode && "border-primary ring-2 ring-primary/25")}
       aria-label="Equipment suggestions"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <Sparkles className="size-4 text-primary" aria-hidden="true" />
+          <h2 className="flex items-center gap-2.5 text-[17px] leading-6 font-bold text-[var(--table-head-fg)]">
+            <span className="flex size-9 items-center justify-center rounded-xl bg-[var(--pastel-lavender-bg)] text-[var(--pastel-lavender-accent)]">
+              <Sparkles className="size-[18px]" aria-hidden="true" />
+            </span>
             {highlight && askForMode ? "Your cargo is in. How will it travel?" : "Not sure which equipment to pick?"}
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1.5 text-meta text-[var(--table-head-fg)]/80">
             {chosen
               ? `Compass test-packs your cargo into each of the ${candidates.length} ${chosen.label} types and shows the best fits`
               : "Choose Sea, Air or Land. Compass then test-packs your cargo into every equipment type for it and shows the best fits"}
@@ -144,6 +154,7 @@ export function EquipmentSuggestions({
           <Button
             type="button"
             variant="outline"
+            className="press h-10 rounded-xl text-button"
             onClick={() => {
               cancelled.current = true
               setProgress(null)
@@ -152,15 +163,15 @@ export function EquipmentSuggestions({
             Stop
           </Button>
         ) : chosen && (current || stale) ? (
-          <Button type="button" variant="outline" onClick={() => void run(chosen.mode)}>
+          <Button type="button" variant="outline" className="press h-10 rounded-xl text-button" onClick={() => void run(chosen.mode)}>
             <RefreshCw className="size-4" />
             Check again
           </Button>
         ) : null}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="How the shipment travels">
-        <span className="text-sm font-medium">Find the best fit by</span>
+      <div className="mt-4 flex flex-wrap items-center gap-2" role="group" aria-label="How the shipment travels">
+        <span className="text-label text-[var(--table-head-fg)]">Find the best fit by</span>
         {TRANSPORT_CHOICES.map((choice) => {
           const count = counts.get(choice.mode) ?? 0
           const active = choice.mode === mode
@@ -171,6 +182,10 @@ export function EquipmentSuggestions({
               type="button"
               variant={active ? "default" : "outline"}
               aria-pressed={active}
+              className={cn(
+                "press h-10 rounded-xl px-4 text-button",
+                !active && "border-white/70 bg-white/60 text-[var(--table-head-fg)] hover:border-primary hover:bg-white/85 hover:text-primary dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10",
+              )}
               disabled={running || count === 0}
               title={count === 0 ? `No ${choice.label} equipment in the library` : `Compare the ${count} ${choice.label} equipment types`}
               onClick={() => void run(choice.mode)}
@@ -198,13 +213,13 @@ export function EquipmentSuggestions({
       ) : null}
 
       {!running && stale ? (
-        <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+        <p className="mt-3 rounded-xl bg-[var(--pastel-amber-bg)] px-3 py-2 text-meta text-amber-900 dark:text-amber-200">
           The cargo or the list of types changed since the last check. Press Check again for fresh suggestions.
         </p>
       ) : null}
 
       {cargo.some((line) => line.weightEstimate) ? (
-        <p className="mt-3 rounded-md border border-dashed border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+        <p className="mt-3 rounded-xl border border-dashed border-amber-500 bg-[var(--pastel-amber-bg)] px-3 py-2 text-meta text-amber-900 dark:text-amber-200">
           Provisional: {cargo.filter((line) => line.weightEstimate).length} cargo line
           {cargo.filter((line) => line.weightEstimate).length === 1 ? " uses an estimated weight" : "s use estimated weights"}. The suggestion is a guide; the weights are confirmed before a load plan is calculated.
         </p>
@@ -223,55 +238,61 @@ export function EquipmentSuggestions({
                 No single type takes all of your cargo. These come closest; you can also combine types below.
               </p>
             ) : null}
-            <ol className="mt-3 divide-y rounded-md border">
+            <ol className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
               {shown.map((entry, index) => {
                 const best = index === 0 && entry.unloadedPieces === 0
                 const inUse = selected.length === 1 && selected[0]?.equipmentTypeId === entry.equipmentTypeId && selected[0]?.quantity === entry.units
+                const item = items.find((candidate) => candidate.id === entry.equipmentTypeId)
                 return (
-                  <li key={entry.equipmentTypeId} className={cn("flex flex-wrap items-center gap-3 px-3 py-2.5", best && "bg-primary/5")}>
-                    <span
-                      className={cn(
-                        "flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
-                        best ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-                      )}
-                      aria-hidden="true"
-                    >
-                      {index + 1}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {entry.units} × {entry.name}
-                        {best ? (
-                          <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">Best fit</span>
-                        ) : null}
+                  <li
+                    key={entry.equipmentTypeId}
+                    className={cn(
+                      "relative flex min-w-0 flex-col gap-3 rounded-[var(--radius-card)] border p-4 shadow-soft transition-[transform,box-shadow,border-color] duration-200 ease-out motion-safe:hover:-translate-y-0.5 hover:shadow-lift",
+                      best ? "border-primary bg-[var(--pastel-mint-bg)]" : "bg-card hover:border-primary/40",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className={cn("flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold", best ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")} aria-hidden="true">
+                        {index + 1}
+                      </span>
+                      <div className="flex flex-wrap justify-end gap-1">
+                        {best ? <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">Best fit</span> : null}
                         {entry.specialist ? (
-                          <span
-                            className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                            title="Flat rack, open top, roll trailer or similar: meant for oversize cargo"
-                          >
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground" title="Flat rack, open top, roll trailer or similar: meant for oversize cargo">
                             Special equipment
                           </span>
                         ) : null}
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 items-start gap-3">
+                      {item ? <IconTile icon={TRANSPORT_ICON[item.mode]} tint={TRANSPORT_TINT[item.mode]} size="sm" /> : null}
+                      <div className="min-w-0">
+                      <p className="text-[16px] leading-5 font-bold break-words">
+                        {entry.units} × {entry.name}
                       </p>
-                      <p className={cn("text-xs", entry.unloadedPieces > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
+                      <p className={cn("mt-1 text-meta", entry.unloadedPieces > 0 ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground")}>
                         {entry.reason}
                         {entry.totalCost > 0 ? ` Cost ${formatCost(entry.totalCost)}.` : ""}
                       </p>
+                      </div>
                     </div>
-                    <div className="hidden w-28 shrink-0 sm:block" title={`Average volume used: ${formatPct(entry.avgVolumePct)}`}>
-                      <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="mt-auto" title={`Average volume used: ${formatPct(entry.avgVolumePct)}`}>
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Volume used</span>
+                        <span className="font-semibold tabular-nums">{formatPct(entry.avgVolumePct)}</span>
+                      </div>
+                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-[var(--step-line)]">
                         <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, entry.avgVolumePct)}%` }} />
                       </div>
-                      <p className="mt-0.5 text-right text-[11px] text-muted-foreground tabular-nums">{formatPct(entry.avgVolumePct)} full</p>
                     </div>
                     {canEdit ? (
                       inUse ? (
-                        <span className="inline-flex w-24 items-center justify-center gap-1 text-xs font-medium text-primary">
-                          <Check className="size-3.5" />
+                        <span className="inline-flex h-9 items-center justify-center gap-1 text-button text-primary">
+                          <Check className="size-4" />
                           Selected
                         </span>
                       ) : (
-                        <Button type="button" size="sm" variant={best ? "default" : "outline"} className="w-24" onClick={() => onUse(entry.equipmentTypeId, entry.units)}>
+                        <Button type="button" variant={best ? "default" : "outline"} className="press h-9 w-full rounded-xl text-button" onClick={() => onUse(entry.equipmentTypeId, entry.units)}>
                           Use this
                         </Button>
                       )
