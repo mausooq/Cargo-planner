@@ -61,6 +61,17 @@
   --table-total-fg: #105b4b;
   --table-border: #d3e3dd;
   --suggest-border: #c8d9d9;
+  /* Analytical panels on the Calculate step. */
+  --status-ok-bg: linear-gradient(135deg, #e4f4eb 0%, #eaf2f0 100%);
+  --status-ok-border: #bfdcce;
+  --status-warn-bg: linear-gradient(135deg, #fff4df 0%, #fbf3e6 100%);
+  --status-warn-border: #efdcb8;
+  --status-bad-bg: linear-gradient(135deg, #fdecec 0%, #fbf2f2 100%);
+  --status-bad-border: #f2c9c9;
+  --util-bg: linear-gradient(110deg, #e5f1ed 0%, #e7eff9 50%, #eee7f7 100%);
+  --gauge-weight-track: #dcd1eb;
+  --gauge-volume-track: #cedff0;
+  --gauge-floor-track: #c8e2d5;
   /* Workflow stepper. */
   --step-active: #105b4b;
   --step-done-bg: #d5e9df;
@@ -131,6 +142,16 @@
   --table-total-fg: #8fd1bb;
   --table-border: #2b3a35;
   --suggest-border: #2f4540;
+  --status-ok-bg: linear-gradient(135deg, #15302a 0%, #172a26 100%);
+  --status-ok-border: #25503f;
+  --status-warn-bg: linear-gradient(135deg, #32270f 0%, #2b2414 100%);
+  --status-warn-border: #5a4520;
+  --status-bad-bg: linear-gradient(135deg, #3a1b1b 0%, #2f1c1c 100%);
+  --status-bad-border: #6b2c2c;
+  --util-bg: linear-gradient(110deg, #16302a 0%, #18263a 50%, #241f38 100%);
+  --gauge-weight-track: #3e3362;
+  --gauge-volume-track: #2b4464;
+  --gauge-floor-track: #25503f;
   --step-active: #3d8f7a;
   --step-done-bg: #1d3a31;
   --step-done-fg: #8fd1bb;
@@ -532,6 +553,16 @@
     opacity: 0;
     transform: translate(-50%, -48%) scale(0.97);
   }
+}
+
+/* Gauges fill once on entry. */
+@keyframes compass-gauge {
+  from {
+    stroke-dashoffset: var(--gauge-from);
+  }
+}
+.gauge-fill {
+  animation: compass-gauge 900ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 /* Step and view changes in the planner. */

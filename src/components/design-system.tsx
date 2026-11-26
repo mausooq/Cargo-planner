@@ -332,3 +332,42 @@ export function SectionCard({
     </section>
   )
 }
+
+/**
+ * A semicircular gauge for a share of a capacity: the arc fills to `pct` (red past 100%), with the value in the
+ * middle and "used / total" below. The fill animates once on entry (off under reduced motion).
+ */
+export function Gauge({ pct, label, used, total, accent, track = "var(--step-line)" }: { pct: number; label: string; used?: string; total?: string; accent: string; track?: string }) {
+  const r = 52
+  const length = Math.PI * r
+  const shown = Math.max(0, Math.min(100, pct))
+  const over = pct > 100
+  const color = over ? "#dc2626" : accent
+  return (
+    <figure className="flex min-w-0 flex-col items-center" aria-label={`${label}: ${Math.round(pct * 10) / 10}%`}>
+      <svg viewBox="0 0 128 74" className="w-full max-w-44" aria-hidden="true">
+        <path d={`M 12 66 A ${r} ${r} 0 0 1 116 66`} fill="none" stroke={track} strokeWidth={11} strokeLinecap="round" />
+        <path
+          d={`M 12 66 A ${r} ${r} 0 0 1 116 66`}
+          fill="none"
+          stroke={color}
+          strokeWidth={11}
+          strokeLinecap="round"
+          className="gauge-fill"
+          style={{ strokeDasharray: length, strokeDashoffset: length * (1 - shown / 100), ["--gauge-from" as string]: `${length}` }}
+        />
+      </svg>
+      <div className="-mt-11 text-center">
+        <p className="text-[24px] leading-7 font-extrabold tabular-nums" style={{ color: over ? color : undefined }}>
+          {Math.round(pct * 10) / 10}%
+        </p>
+        <p className="text-label text-muted-foreground">{label}</p>
+      </div>
+      {used && total ? (
+        <figcaption className="mt-1.5 text-center text-meta tabular-nums">
+          <span className="font-semibold">{used}</span> <span className="text-muted-foreground">/ {total}</span>
+        </figcaption>
+      ) : null}
+    </figure>
+  )
+}

@@ -1,10 +1,10 @@
 "use client"
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react"
 import type { PlannerStep } from "@compass/domain"
 import Link from "next/link"
 import { createPortal } from "react-dom"
-import { FileSpreadsheet, Loader2, Printer } from "lucide-react"
+import { AlertTriangle, Boxes, Calculator, CheckCircle2, Container, FileSpreadsheet, Gauge as GaugeIcon, Info, Loader2, Package, Printer, Scale, ShieldCheck, XCircle } from "lucide-react"
 import { resolveMinSupportPct } from "@compass/physics"
 import { useEditorSettings } from "@/lib/editor-settings"
 import { toast } from "sonner"
@@ -18,6 +18,7 @@ import { recalculateGuard, type RecalcGuard } from "@/lib/recalc-guard"
 import { DragSettingsPanel } from "@/components/drag-settings"
 import { LoadViewer, PIECE_DRAG_TYPE, type ViewerCamera } from "@/components/load-viewer"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { Gauge, IconTile, SectionCard, StatusPill, SummaryCard, type PillTone } from "@/components/design-system"
 import { PlanDiagram } from "@/components/plan-diagram"
 import { RemainingCapacityPanel } from "@/components/remaining-capacity"
 import { Button } from "@/components/ui/button"
@@ -278,59 +279,84 @@ export const PlanWorkspace = forwardRef<
 
   return (
     <div className="relative min-h-48 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2.5">
-        <div className="text-sm text-muted-foreground">
-          {totals ? (
-            <span>
-              {outOfDate ? <span className="font-medium text-foreground">Previous calculation: </span> : null}
-              {totals.pieces} pieces loaded · {totals.units} unit{totals.units === 1 ? "" : "s"} · {formatKg(totals.kg)} ·{" "}
-              {formatM3(totals.volume)}
-              {plan && plan.unloaded.length > 0 ? ` · ${plan.unloaded.length} not loaded` : ""}
-            </span>
-          ) : (
-            <span>No plan yet. Calculate to pack the cargo into the selected equipment.</span>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {variant === "plan" && plan && plan.units.length > 0 ? (
-            <>
-              <Button type="button" size="sm" variant="outline" onClick={() => void exportExcel()} disabled={exporting}>
-                <FileSpreadsheet className="size-3.5" />
-                {exporting ? "Preparing…" : "Excel"}
+      {variant === "workspace" ? (
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-4">
+            <IconTile icon={Calculator} tint="mint" size="lg" />
+            <div className="min-w-0">
+              <h2 className="text-page-title">Calculate &amp; Optimisation</h2>
+              <p className="mt-1 text-page-desc text-muted-foreground">Pack the cargo into the selected equipment, check the result and see the space that is left.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <StatusPill tone={PLAN_TONE[planStatus.tone]}>{planStatus.label}</StatusPill>
+            {/* One Recalculate button at a time: while the plan is out of date, it lives in the warning banner. */}
+            {canEdit && !outOfDate ? (
+              <Button type="button" className="press h-11 rounded-xl px-5 text-button shadow-soft" onClick={requestRecalculate} disabled={busy} aria-busy={busy}>
+                {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Calculator className="size-4" aria-hidden="true" />}
+                {busy ? progress ?? "Calculating…" : plan ? "Recalculate" : "Calculate load plan"}
               </Button>
-              <Button asChild size="sm" variant="outline">
-                <Link href={`/projects/${projectId}/report`}>
-                  <Printer className="size-3.5" />
-                  Print / PDF
-                </Link>
-              </Button>
-            </>
-          ) : null}
-          {canEdit && !outOfDate ? (
-            <Button
-              type="button"
-              size="sm"
-              variant={plan && variant === "plan" ? "outline" : "default"}
-              onClick={requestRecalculate}
-              disabled={busy}
-            >
-              {busy ? progress ?? "Calculating…" : plan ? "Recalculate" : "Calculate load plan"}
-            </Button>
-          ) : null}
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card px-3 py-2.5">
+          <div className="text-sm text-muted-foreground">
+            {totals ? (
+              <span>
+                {outOfDate ? <span className="font-medium text-foreground">Previous calculation: </span> : null}
+                {totals.pieces} pieces loaded · {totals.units} unit{totals.units === 1 ? "" : "s"} · {formatKg(totals.kg)} ·{" "}
+                {formatM3(totals.volume)}
+                {plan && plan.unloaded.length > 0 ? ` · ${plan.unloaded.length} not loaded` : ""}
+              </span>
+            ) : (
+              <span>No plan yet. Calculate to pack the cargo into the selected equipment.</span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {variant === "plan" && plan && plan.units.length > 0 ? (
+              <>
+                <Button type="button" size="sm" variant="outline" onClick={() => void exportExcel()} disabled={exporting}>
+                  <FileSpreadsheet className="size-3.5" />
+                  {exporting ? "Preparing…" : "Excel"}
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/projects/${projectId}/report`}>
+                    <Printer className="size-3.5" />
+                    Print / PDF
+                  </Link>
+                </Button>
+              </>
+            ) : null}
+            {canEdit && !outOfDate ? (
+              <Button
+                type="button"
+                size="sm"
+                variant={plan && variant === "plan" ? "outline" : "default"}
+                onClick={requestRecalculate}
+                disabled={busy}
+              >
+                {busy ? progress ?? "Calculating…" : plan ? "Recalculate" : "Calculate load plan"}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       {outOfDate && plan ? (
         <div
           role="status"
-          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200"
+          className={cn(
+            "flex flex-wrap items-center justify-between gap-2 border border-amber-500/50 text-amber-900 dark:text-amber-200",
+            variant === "workspace" ? "pastel-amber rounded-[var(--radius-card)] border-[var(--pc-border)] bg-[var(--pc-bg)] px-4 py-3 text-detail shadow-soft" : "rounded-md bg-amber-50 px-3 py-2 text-sm dark:bg-amber-500/10",
+          )}
         >
           <span>
             <span className="font-medium">Cargo updated — recalculation required.</span> Recalculate to update your load plan and remaining capacity.
             {plan.layoutSource === "MANUAL" ? " Your hand-arranged layout will be replaced, and you are asked first." : ""}
           </span>
           {canEdit ? (
-            <Button type="button" size="sm" onClick={requestRecalculate} disabled={busy} aria-busy={busy}>
+            <Button type="button" size="sm" className={cn(variant === "workspace" && "press h-10 rounded-xl px-4 text-button")} onClick={requestRecalculate} disabled={busy} aria-busy={busy}>
               {busy ? (
                 <>
                   <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -419,7 +445,17 @@ export const PlanWorkspace = forwardRef<
         <EmptyPlan unloaded={plan?.unloaded ?? []} canEdit={canEdit} onEditStep={onEditStep} />
       ) : variant === "workspace" ? (
         <>
-          {outOfDate ? <p className="text-xs font-medium text-muted-foreground">Previous calculation results (before the cargo was updated)</p> : null}
+          {outOfDate ? (
+            <p className="flex items-center gap-2 text-meta font-semibold text-amber-800 dark:text-amber-300">
+              <AlertTriangle className="size-4" aria-hidden="true" />
+              Previous calculation results, from before the cargo was updated
+            </p>
+          ) : null}
+          <CalcSummaryCards plan={plan} stale={outOfDate} />
+          <div className="grid items-start gap-5 xl:grid-cols-2">
+            <CalcStatusPanel plan={plan} cargo={cargo} status={planStatus} />
+            <UtilisationPanel units={plan.units} stale={outOfDate} />
+          </div>
           <WorkspaceTable units={plan.units} selected={selectedIndex} onSelect={setSelected} />
           <UnloadedList unloaded={plan.unloaded} onEditStep={onEditStep} />
           <RemainingCapacityPanel plan={plan} cargo={cargo} minSupportPct={minSupportPct} canEdit={canEdit} stale={stale} onAddCargo={onEditStep ? () => onEditStep("data") : undefined} />
@@ -533,47 +569,48 @@ function WorkspaceTable({
 }) {
   const lengthUnit = useLengthUnit()
   return (
-    <div className="overflow-hidden rounded-md border bg-card">
-      <table className="sheet-table w-full text-left text-sm">
-        <thead className="bg-muted/70 text-xs tracking-wide text-muted-foreground uppercase">
+    <SectionCard banded icon={Container} title="Load calculation results" description="One row per equipment unit. Select a row to look at that unit.">
+      <div className="overflow-x-auto">
+      <table className="data-table w-full min-w-[56rem] text-left text-sm">
+        <thead>
           <tr>
-            <th className="px-4 py-2">Unit</th>
-            <th className="px-4 py-2">Pieces</th>
-            <th className="px-4 py-2">Weight</th>
-            <th className="px-4 py-2">Volume</th>
-            <th className="px-4 py-2">Used space</th>
-            <th className="px-4 py-2" title={FLOOR_HELP}>
+            <th className="px-5">Unit</th>
+            <th className="px-4 text-right">Pieces</th>
+            <th className="px-4 text-right">Weight</th>
+            <th className="px-4 text-right">Volume</th>
+            <th className="px-4">Used space</th>
+            <th className="px-4 text-right" title={FLOOR_HELP}>
               Floor utilization (%)
             </th>
-            <th className="px-4 py-2">View</th>
+            <th className="px-5">View</th>
           </tr>
         </thead>
         <tbody>
           {units.map((unit, index) => (
             <tr
               key={unit.unitIndex}
-              className={cn("cursor-pointer", selected === index && "bg-secondary/70")}
+              className={cn("cursor-pointer border-t", selected === index && "bg-[var(--pastel-mint-bg)] hover:bg-[var(--pastel-mint-bg)]")}
               onClick={() => onSelect(index)}
             >
-              <td className="px-4 py-3 font-medium">
+              <td className={cn("px-5 py-3 text-[15px] font-semibold", selected === index && "shadow-[inset_3px_0_0_var(--primary)]")}>
                 {index + 1}. {unit.equipmentName}
               </td>
-              <td className="px-4 py-3">{unit.pieces}</td>
-              <td className="px-4 py-3">
-                {formatKg(unit.netKg)} ({formatPct(unit.weightPct)})
+              <td className="px-4 py-3 text-right tabular-nums">{unit.pieces}</td>
+              <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">
+                {formatKg(unit.netKg)} <span className="text-muted-foreground">({formatPct(unit.weightPct)})</span>
               </td>
-              <td className="px-4 py-3">
-                {formatM3(unit.volumeM3)} ({formatPct(unit.volumePct)})
+              <td className="px-4 py-3 text-right whitespace-nowrap tabular-nums">
+                {formatM3(unit.volumeM3)} <span className="text-muted-foreground">({formatPct(unit.volumePct)})</span>
               </td>
-              <td className="px-4 py-3 text-muted-foreground">
+              <td className="px-4 py-3 whitespace-nowrap text-muted-foreground tabular-nums">
                 L {lengthCellText(unit.usedLengthCm, lengthUnit)} · W {lengthCellText(unit.usedWidthCm, lengthUnit)} · H{" "}
                 {lengthCellText(unit.usedHeightCm, lengthUnit)} {LENGTH_UNIT_SYMBOL[lengthUnit]}
               </td>
-              <td className="px-4 py-3 tabular-nums" title={FLOOR_HELP}>
+              <td className="px-4 py-3 text-right font-semibold tabular-nums" title={FLOOR_HELP}>
                 {formatPct(unit.floorPct)}
               </td>
-              <td className="px-4 py-3">
-                <div className="h-20 w-48 overflow-hidden rounded-lg border bg-white">
+              <td className="px-5 py-3">
+                <div className="h-20 w-48 overflow-hidden rounded-lg border border-[var(--table-border)] bg-white">
                   <PlanDiagram unit={unit} view="side" bare className="h-full w-full" />
                 </div>
               </td>
@@ -581,7 +618,8 @@ function WorkspaceTable({
           ))}
         </tbody>
       </table>
-    </div>
+      </div>
+    </SectionCard>
   )
 }
 
@@ -1357,7 +1395,7 @@ function UnloadedList({
     else groups.set(key, { name: row.name, detail: row.detail, count: 1 })
   }
   return (
-    <div className="rounded-md border border-destructive/40 bg-card p-3 text-sm" role="alert">
+    <div className="rounded-[var(--radius-card)] border border-destructive/40 bg-card p-4 text-detail shadow-soft" role="alert">
       <p className="font-medium text-destructive">
         {unloaded.length} piece{unloaded.length === 1 ? "" : "s"} did not fit
       </p>
@@ -1462,6 +1500,182 @@ function Metric({ label, value, title }: { label: string; value: string; title?:
     <div className="min-w-28 rounded-lg border bg-card px-3 py-2 shadow-card" title={title}>
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="text-sm font-semibold tabular-nums">{value}</dd>
+    </div>
+  )
+}
+
+const PLAN_TONE: Record<PlanStatus["tone"], PillTone> = { neutral: "neutral", action: "info", warning: "warning", success: "success", danger: "warning" }
+
+/** The calculation in four figures, from the plan as it is (requested pieces are the loaded ones plus those that did not fit). */
+function CalcSummaryCards({ plan, stale }: { plan: PlanView; stale: boolean }) {
+  const loaded = plan.units.reduce((sum, unit) => sum + unit.pieces, 0)
+  const requested = loaded + plan.unloaded.length
+  const kg = plan.units.reduce((sum, unit) => sum + unit.netKg, 0)
+  const payload = plan.units.reduce((sum, unit) => sum + unit.maxPayloadKg, 0)
+  const volume = plan.units.reduce((sum, unit) => sum + unit.volumeM3, 0)
+  const capacity = plan.units.reduce((sum, unit) => sum + (unit.lengthCm * unit.widthCm * unit.heightCm) / 1_000_000, 0)
+  const types = new Map<string, number>()
+  for (const unit of plan.units) types.set(unit.equipmentName, (types.get(unit.equipmentName) ?? 0) + 1)
+  const previous = stale ? " · previous calculation" : ""
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <SummaryCard
+        icon={Package}
+        tint="mint"
+        label="Loaded packages"
+        value={`${loaded.toLocaleString("en-US")} / ${requested.toLocaleString("en-US")}`}
+        hint={plan.unloaded.length > 0 ? `${plan.unloaded.length} not loaded${previous}` : `All requested pieces loaded${previous}`}
+        tone={plan.unloaded.length > 0 ? "danger" : stale ? "warning" : "neutral"}
+      />
+      <SummaryCard icon={Scale} tint="lavender" label="Loaded gross weight" value={formatKg(kg)} hint={`of ${formatKg(payload)} payload${previous}`} tone={stale ? "warning" : "neutral"} />
+      <SummaryCard icon={Boxes} tint="blue" label="Loaded cargo volume" value={formatM3(volume)} hint={`of ${formatM3(capacity)} inside volume${previous}`} tone={stale ? "warning" : "neutral"} />
+      <SummaryCard
+        icon={Container}
+        tint="amber"
+        label="Equipment units used"
+        value={plan.units.length}
+        hint={`${[...types.entries()].map(([name, count]) => `${count} × ${name}`).join(", ")}${previous}`}
+        tone={stale ? "warning" : "neutral"}
+      />
+    </div>
+  )
+}
+
+type StatusRow = { tone: "success" | "warning" | "danger" | "info"; text: string }
+
+const ROW_ICON = { success: CheckCircle2, warning: AlertTriangle, danger: XCircle, info: Info } as const
+const ROW_COLOUR = {
+  success: "text-primary dark:text-[var(--step-done-fg)]",
+  warning: "text-amber-600 dark:text-amber-400",
+  danger: "text-red-600 dark:text-red-400",
+  info: "text-[var(--pastel-blue-accent)]",
+} as const
+
+/** What the app actually knows about this calculation: its status, unloaded pieces, solver warnings and provisional inputs. */
+function CalcStatusPanel({ plan, cargo, status }: { plan: PlanView; cargo: CargoLine[]; status: PlanStatus }) {
+  const loaded = plan.units.reduce((sum, unit) => sum + unit.pieces, 0)
+  const estimated = linesNeedingWeightConfirmation(cargo).length
+  const stacking = cargo.filter((line) => line.stackableNotStated && !line.stackable).length
+  const incomplete = cargo.filter((line) => !isPlannable(line)).length
+  const rows: StatusRow[] = []
+  if (status.kind === "ready") rows.push({ tone: "success", text: "The plan matches the current cargo and equipment." })
+  else if (status.kind === "out-of-date") rows.push({ tone: "warning", text: "The cargo changed after this calculation. These are the previous results." })
+  else if (status.kind === "failed") rows.push({ tone: "danger", text: "The last calculation failed. The results shown are from an earlier run." })
+  else if (status.kind === "calculating") rows.push({ tone: "info", text: "Calculating…" })
+  rows.push(
+    plan.unloaded.length > 0
+      ? { tone: "danger", text: `${plan.unloaded.length} of ${loaded + plan.unloaded.length} pieces could not be loaded (see below).` }
+      : { tone: "success", text: `All ${loaded} pieces are loaded.` },
+  )
+  for (const warning of plan.warnings) rows.push({ tone: "warning", text: warning })
+  if (estimated > 0) rows.push({ tone: "warning", text: `${estimated} cargo line${estimated === 1 ? " uses an estimated weight" : "s use estimated weights"}: the result is provisional.` })
+  if (incomplete > 0) rows.push({ tone: "warning", text: `${incomplete} incomplete cargo line${incomplete === 1 ? " was" : "s were"} left out of the plan.` })
+  if (stacking > 0) rows.push({ tone: "info", text: `Stacking is not stated for ${stacking} line${stacking === 1 ? "" : "s"}; nothing is stacked on ${stacking === 1 ? "it" : "them"}.` })
+  if (plan.layoutSource === "MANUAL") rows.push({ tone: "info", text: "The layout was arranged by hand on the Load plan step." })
+  const worst = rows.some((row) => row.tone === "danger") ? "danger" : rows.some((row) => row.tone === "warning") ? "warning" : "success"
+  const issues = rows.filter((row) => row.tone === "danger" || row.tone === "warning").length
+  const surface = worst === "danger" ? "bad" : worst === "warning" ? "warn" : "ok"
+  return (
+    <section
+      aria-label="Calculation status"
+      className="overflow-hidden rounded-[var(--radius-card)] border shadow-soft"
+      style={{ background: `var(--status-${surface}-bg)`, borderColor: `var(--status-${surface}-border)` }}
+    >
+      <div className="flex flex-wrap items-center gap-3 px-5 pt-4 pb-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/75 text-[var(--table-head-fg)] shadow-soft dark:bg-white/10">
+          <ShieldCheck className="size-5" aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[17px] leading-6 font-bold text-[var(--table-head-fg)]">Calculation status</h3>
+          <p className="text-meta text-[var(--table-head-fg)]/80">What this calculation found, from the packer and your cargo.</p>
+        </div>
+        <StatusPill tone={worst === "success" ? "success" : "warning"}>{worst === "success" ? "No issues found" : `${issues} to review`}</StatusPill>
+      </div>
+      <ul className="mx-3 mb-3 divide-y divide-white/70 rounded-xl bg-white/45 dark:divide-white/10 dark:bg-white/5">
+        {rows.map((row, index) => {
+          const Icon = ROW_ICON[row.tone]
+          return (
+            <li key={`${row.text}-${index}`} className="flex items-start gap-3 px-4 py-2.5">
+              <Icon className={cn("mt-0.5 size-5 shrink-0", ROW_COLOUR[row.tone])} aria-hidden="true" />
+              <span className="text-detail">{row.text}</span>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+/** Weight, volume and floor use as gauges: for each unit, and for all units together (totals, never an average). */
+function UtilisationPanel({ units, stale }: { units: PlanUnitView[]; stale: boolean }) {
+  const [scope, setScope] = useState<"all" | number>(units.length > 1 ? "all" : 0)
+  const chosen = scope === "all" ? units : units[scope] ? [units[scope]!] : units
+  const payload = chosen.reduce((sum, unit) => sum + unit.maxPayloadKg, 0)
+  const kg = chosen.reduce((sum, unit) => sum + unit.netKg, 0)
+  const capacity = chosen.reduce((sum, unit) => sum + (unit.lengthCm * unit.widthCm * unit.heightCm) / 1_000_000, 0)
+  const volume = chosen.reduce((sum, unit) => sum + unit.volumeM3, 0)
+  const floor = chosen.reduce((sum, unit) => sum + (unit.lengthCm * unit.widthCm) / 10_000, 0)
+  const floorUsed = chosen.reduce((sum, unit) => sum + ((unit.floorPct / 100) * unit.lengthCm * unit.widthCm) / 10_000, 0)
+  // One unit: its own figures exactly as calculated. Several: totals of used over totals of capacity.
+  const single = chosen.length === 1 ? chosen[0]! : null
+  const pct = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0)
+  const m2 = (value: number) => `${value.toLocaleString("en-US", { maximumFractionDigits: 2 })} m²`
+  return (
+    <section aria-label="Equipment utilisation" className="overflow-hidden rounded-[var(--radius-card)] border border-[var(--suggest-border)] shadow-soft" style={{ background: "var(--util-bg)" }}>
+      <div className="flex flex-wrap items-center gap-3 px-5 pt-4 pb-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/75 text-[var(--table-head-fg)] shadow-soft dark:bg-white/10">
+          <GaugeIcon className="size-5" aria-hidden="true" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[17px] leading-6 font-bold text-[var(--table-head-fg)]">Equipment utilisation</h3>
+          <p className="text-meta text-[var(--table-head-fg)]/80">
+            {single ? `Unit ${units.indexOf(single) + 1}: ${single.equipmentName}${stale ? " · previous calculation" : ""}` : `All ${units.length} units combined: totals used over totals available${stale ? " · previous calculation" : ""}`}
+          </p>
+        </div>
+        {units.length > 1 ? (
+          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Units">
+            {(["all", ...units.map((_, index) => index)] as const).map((entry) => (
+              <button
+                key={String(entry)}
+                type="button"
+                aria-pressed={scope === entry}
+                onClick={() => setScope(entry)}
+                className={cn(
+                  "press h-8 rounded-full border px-3 text-[13px] font-semibold outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                  scope === entry ? "border-primary bg-primary text-primary-foreground" : "border-white/70 bg-white/60 text-[var(--table-head-fg)] hover:border-primary dark:border-white/10 dark:bg-white/5",
+                )}
+              >
+                {entry === "all" ? "All units" : `Unit ${entry + 1}`}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className="grid gap-3 px-3 pb-3 sm:grid-cols-3">
+        <GaugeSurface tone="lavender">
+          <Gauge accent="var(--pastel-lavender-accent)" track="var(--gauge-weight-track)" label="Weight" pct={single ? single.weightPct : pct(kg, payload)} used={formatKg(kg)} total={formatKg(payload)} />
+        </GaugeSurface>
+        <GaugeSurface tone="blue">
+          <Gauge accent="var(--pastel-blue-accent)" track="var(--gauge-volume-track)" label="Volume" pct={single ? single.volumePct : pct(volume, capacity)} used={formatM3(volume)} total={formatM3(capacity)} />
+        </GaugeSurface>
+        <GaugeSurface tone="mint">
+          <Gauge accent="var(--pastel-mint-accent)" track="var(--gauge-floor-track)" label="Floor" pct={single ? single.floorPct : pct(floorUsed, floor)} used={m2(floorUsed)} total={m2(floor)} />
+        </GaugeSurface>
+      </div>
+    </section>
+  )
+}
+
+/** A rounded pastel tile behind one gauge, in the tone of its accent. */
+function GaugeSurface({ tone, children }: { tone: "lavender" | "blue" | "mint"; children: ReactNode }) {
+  return (
+    <div
+      className={cn(
+        tone === "lavender" ? "pastel-lavender" : tone === "blue" ? "pastel-blue" : "pastel-mint",
+        "rounded-xl border border-[var(--pc-border)] bg-[var(--pc-bg)] px-3 pt-4 pb-3 transition-[transform,box-shadow,border-color] duration-200 ease-out motion-safe:hover:-translate-y-0.5 hover:border-[var(--pc-accent)]/50 hover:shadow-lift",
+      )}
+    >
+      {children}
     </div>
   )
 }
